@@ -2,6 +2,8 @@
 
 A local-first CAD, mesh and drawing viewer for inspecting assemblies and taking engineering measurements. One React/Three.js interface runs in the browser/PWA and in Tauri desktop and mobile shells. Model files are processed on the device.
 
+[Download the private preview](https://github.com/casimir-engineering/shenzhen-3D/releases/tag/preview-0.1.0) · [Delivery and validation](docs/DELIVERY.md)
+
 ![Shenzhen 3D workbench measuring an 80 mm bracket](docs/images/workbench.png)
 
 Open STEP, IGES or BREP for CAD topology and exact supported feature queries; open common mesh formats, DXF/DWG drawings or SVG for inspection and geometry-based measurements. [Format support and limits](docs/FORMATS.md) distinguish these paths. Native SolidWorks, CATIA and other proprietary authoring formats require export to a supported interchange format.
