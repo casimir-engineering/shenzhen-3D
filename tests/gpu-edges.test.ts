@@ -135,4 +135,19 @@ describe("GPU instanced edges", () => {
     ).toEqual([]);
     disposeEdges(edges);
   });
+
+  it("releases matrices owned only by edges after the source proxy is disposed", () => {
+    const source = mesh();
+    const edges = createInstancedEdges(source);
+    const matrix = source.instanceMatrix;
+    source.dispose();
+    const onDispose = vi.fn(() => {
+      expect(edges.geometry.getAttribute("instanceMatrix")).toBe(matrix);
+    });
+    edges.geometry.addEventListener("dispose", onDispose);
+    disposeEdges(edges);
+    expect(onDispose).toHaveBeenCalledTimes(1);
+    expect(edges.geometry.getAttribute("instanceMatrix")).toBeUndefined();
+    expect(source.instanceMatrix).toBe(matrix);
+  });
 });

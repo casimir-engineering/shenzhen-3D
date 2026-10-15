@@ -45,9 +45,17 @@ function acquireEdges(source: BufferGeometry, thresholdAngle: number) {
 /** Owns only its VAO; positions belong to the cache and matrices to the mesh. */
 class EdgeInstanceGeometry extends InstancedBufferGeometry {
   private disposed = false;
+  private sourceDisposed = false;
+  private readonly onSourceDispose = () => {
+    this.sourceDisposed = true;
+  };
 
-  constructor(private readonly releaseEdges: () => boolean) {
+  constructor(
+    private readonly releaseEdges: () => boolean,
+    private readonly source: InstancedMesh,
+  ) {
     super();
+    source.addEventListener("dispose", this.onSourceDispose);
   }
 
   override dispose() {
@@ -55,12 +63,17 @@ class EdgeInstanceGeometry extends InstancedBufferGeometry {
     this.disposed = true;
     // WebGLGeometries removes every attached attribute on the dispose event.
     // Detach borrowed attributes first so other meshes/edge objects stay valid.
-    this.deleteAttribute("instanceMatrix");
+    // A render-only BatchedMesh source may never have registered its own
+    // instanceMatrix disposal listener with WebGLObjects. Once that source is
+    // disposed, this edge geometry must release its uploaded matrix buffer.
+    if (!this.sourceDisposed) this.deleteAttribute("instanceMatrix");
+    this.source.removeEventListener("dispose", this.onSourceDispose);
     // The cached EdgesGeometry is never submitted to the renderer itself. Its
     // final wrapper must release the position GPU buffer through its own event.
     const lastReference = this.releaseEdges();
     if (!lastReference) this.deleteAttribute("position");
     super.dispose();
+    this.deleteAttribute("instanceMatrix");
     this.deleteAttribute("position");
   }
 }
@@ -75,7 +88,7 @@ export class InstancedEdges extends LineSegments<
     thresholdAngle: number,
   ) {
     const cached = acquireEdges(source.geometry, thresholdAngle);
-    const geometry = new EdgeInstanceGeometry(cached.release);
+    const geometry = new EdgeInstanceGeometry(cached.release, source);
     geometry.setAttribute("position", cached.geometry.getAttribute("position"));
     geometry.setAttribute("instanceMatrix", source.instanceMatrix);
 
