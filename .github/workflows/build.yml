@@ -25,6 +25,17 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+      - name: Verify GPU rendering paths and measurement geometry
+        shell: bash
+        run: |
+          npm run dev -- --port 1430 --strictPort > viewer-test-server.log 2>&1 &
+          VIEWER_TEST_PID=$!
+          trap 'kill "$VIEWER_TEST_PID"' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:1430/tests/perf/viewer-correctness.html > /dev/null; then break; fi
+            sleep 1
+          done
+          PERF_BASE_URL=http://127.0.0.1:1430 node scripts/perf/check-viewer-correctness.mjs --software
       - uses: actions/upload-artifact@v4
         with:
           name: shenzhen-3d-web
