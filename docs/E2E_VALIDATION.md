@@ -8,7 +8,7 @@ Playwright exercises the running application in Chromium at 1440 × 1000 and an 
 npm run test:e2e
 ```
 
-The configuration reuses a local Vite server on port 1420, or starts one when needed. CI starts its own server. `E2E_BASE_URL` points tests at an alternative running application and disables automatic server startup. Traces and screenshots are retained on failure under `test-results/`; the HTML report is written to `playwright-report/`.
+The configuration reuses a local Vite development server on port 1420, or starts one when needed. CI serves the production build with Vite preview on port 1420, so run `npm run build` before the suite in CI. `E2E_BASE_URL` points tests at an alternative running application and disables automatic server startup. Traces and screenshots are retained on failure under `test-results/`; the HTML report is written to `playwright-report/`.
 
 While application source is being edited, use a static copy of a successful build to prevent Vite hot reload from clearing the active model during a test. The validation run used `artifacts/e2e-build` served on port 1423:
 
@@ -32,14 +32,19 @@ npx tsc --ignoreConfig --noEmit --skipLibCheck --target es2022 --module esnext -
 | Save, restore and delete measurements | Yes | Yes |
 | Download JSON and CSV and validate units and numeric data | Yes | Yes |
 | CAD face area query and exact minimum distance between faces | Yes | Yes |
+| Exact center/centroid distance between two CAD faces | Yes | Yes |
+| Mesh fastener cap diameter and merged coplanar area | Yes | Yes |
 | Assembly search, hide, show, isolate and show all | Yes | Yes |
 | Three-point angle on the sample geometry | Yes | Yes |
 | Orthographic projection and section position/axis controls | Toolbar | Settings |
 | Edges, ground grid, PNG screenshot download | Yes | — |
 | Opacity and assembly explode through settings | — | Yes |
 | Uncaught exceptions and browser console errors | Checked after every test | Checked after every test |
+| Production service worker installation, offline reload and local STEP import | Yes | Yes |
 
-Model picks come from WebGL pixel readback after selecting top view and fitting the model. The tests confirm candidate points hit geometry through the visible hover status before clicking. This permits the sample assembly to be measured without hardcoded screen coordinates or private application state. Exact queries use the real CAD worker. Export checks read browser downloads and compare converted values with the saved raw measurement.
+Model picks come from WebGL pixel readback after selecting top view and fitting the model. The tests confirm candidate points hit geometry through the visible hover status before clicking. This permits the sample assembly to be measured without hardcoded screen coordinates or private application state. Exact queries use the real CAD worker. Export checks read browser downloads and compare converted values with the saved raw measurement. The mesh cap test verifies a 10 mm fitted diameter and the 78.036 mm² area of its 32-segment polygon. It also checks that a touch pick opens the Measure tab without activating a control in the newly appeared bottom sheet.
+
+The offline test waits for service worker installation and control, checks the application shell and WebAssembly are cached, then disables the browser context's network. It reloads the production app and imports the local STEP fixture while offline. This test skips on the Vite development server because its offline cache is generated only by production builds.
 
 ## Scope
 
@@ -47,4 +52,4 @@ These are functional browser interaction tests. They do not certify visual desig
 
 ## Recorded result
 
-On 2026-10-16, the static-build run completed with **6 passed and 2 intentionally skipped** in 1.2 minutes. Each project skips the control test specific to the other viewport; all workflows listed above ran in their applicable project. No uncaught application exceptions or browser console errors occurred. The independent test/config TypeScript check also passed.
+On 2026-10-16, the latest static-build run completed with **10 passed and 2 intentionally skipped** in 2.3 minutes. Each project skips the control test specific to the other viewport; all workflows listed above ran in their applicable project. Exact center/centroid distances, mesh cap properties, the mobile sheet interaction regression, and offline reload plus STEP import passed in both viewports. No uncaught application exceptions or browser console errors occurred. The independent test/config TypeScript check also passed.

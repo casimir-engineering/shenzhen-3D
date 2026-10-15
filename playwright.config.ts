@@ -19,7 +19,7 @@ export default defineConfig({
     {name: 'mobile-chromium', use: {...devices['iPhone 13'], defaultBrowserType: 'chromium'}},
   ],
   webServer: process.env.E2E_BASE_URL ? undefined : {
-    command: 'npm run dev',
+    command: process.env.CI ? 'npm run preview -- --port 1420 --strictPort' : 'npm run dev',
     url: 'http://127.0.0.1:1420',
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
