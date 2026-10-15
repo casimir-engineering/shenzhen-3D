@@ -153,11 +153,12 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
     builder
-        .setup(|app| {
+        .setup(|_app| {
             #[cfg(desktop)]
-            desktop_menu(app)?;
+            desktop_menu(_app)?;
+            #[cfg(desktop)]
             if cfg!(debug_assertions) {
-                app.handle().plugin(
+                _app.handle().plugin(
                     tauri_plugin_log::Builder::default()
                         .level(log::LevelFilter::Info)
                         .build(),
