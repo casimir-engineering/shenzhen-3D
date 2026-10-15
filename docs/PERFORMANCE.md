@@ -52,6 +52,17 @@ The **actual Electron desktop shell** was also measured through `electron/main.c
 
 The separate-geometry Electron run had one 24.3 ms render-invocation interval outlier; its average remained 120 fps and p95 was 9.3 ms. These results establish the measured 120 fps target, rather than a zero-jitter guarantee. Actual navigation triangle totals match the Chromium runs above.
 
+## Rendering-feature regression (0.1.2)
+
+After adding the optional ray tracer and an alpha-enabled raster overlay canvas, a separate hardware regression at source `44761a8` repeated the two largest workloads. Ray tracing was disabled; its worker and GPU context were not created. Viewport, DPR, drawing-buffer size, orbit duration and Metal timer-query method matched the earlier browser runs.
+
+| Workload | Observed render fps | Observed rAF fps | Interval p95 (ms) | CPU render p95 (ms) | GPU timer p95 (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Sample ×100 / 98.30M logical triangles | 120.00 | 120.00 | 8.80 | 0.30 | 6.69 |
+| Sample ×10 / 37,600 separate geometries | 120.00 | 119.99 | 9.10 | 0.70 | 4.31 |
+
+The ×100 case still submitted 86,368,600 navigation triangles in 51 draws; the separate-geometry case submitted all 9,829,620 triangles in 37 draws. Every recorded drawing buffer remained 2880×1800. One ×100 interval reached 16.1 ms; no interval exceeded 25 ms. The raw record is [0.1.2 rendering regression](../tests/perf/results/apple-m5-max-rendering-0.1.2.json). These are raster navigation timings; progressive ray-tracing preparation, convergence and display/export pixel parity are documented separately in [RENDERING.md](RENDERING.md).
+
 ## Reproduction and evidence
 
 Start `npm run dev`, then run:
