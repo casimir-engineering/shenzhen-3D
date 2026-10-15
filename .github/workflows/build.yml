@@ -40,6 +40,7 @@ jobs:
             sleep 1
           done
           PERF_BASE_URL=http://127.0.0.1:1430 node scripts/perf/check-viewer-correctness.mjs --software
+          PERF_BASE_URL=http://127.0.0.1:1430 node tests/render-styles-browser.mjs --software
       - uses: actions/upload-artifact@v4
         with:
           name: shenzhen-3d-web

@@ -40,3 +40,11 @@ Hierarchy: geometry first, active dimension second, tools third.
 Palette/depth: cool graphite neutrals and jade selection, fine separators, quiet surface shifts.
 Typography: native system UI for platform legibility; tabular monospace values for measurements; 12/14/17/24 px scale.
 Spacing: 4 px base, 12–16 px panel padding; compact desktop controls, 44 px touch targets.
+
+## Review and rendering follow-up
+
+1. Portable review projects: bundle original files and companions, point/part/feature annotations, saved measurements and unit settings. Rebind anchors on re-import using verified structural identities, never stale runtime handles. Validate archive limits and malformed manifests; test CAD and random-ID mesh round trips.
+2. Review interface: numbered model pins, inline notes, edit/resolve/delete, focus-on-anchor, desktop/mobile inspector and explicit project save/share. Test real feature selection, reload, units and companion assets.
+3. Display: shaded, shaded edges, wireframe and dashed hidden lines; adjustable key direction/intensity and uniform fill. Preserve original measurement geometry and optimized default rendering. Verify pixels, clipping, hide/explode and disposal.
+4. Progressive GPU ray tracing: capability-gated backend with asynchronous preparation, explicit progress and memory limits, fast raster navigation and recovery. Verify actual traced output rather than relabeling raster shading.
+5. Package the verified update across all targets and mirror private commits/releases. Preserve the completed 0.1.1 performance checkpoint and its measured evidence.

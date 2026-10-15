@@ -325,3 +325,127 @@ test('production app reloads and imports STEP after the network goes offline', a
     await context.setOffline(false);
   }
 });
+
+test('portable review projects preserve point, feature and part notes with editable anchors', async ({page, isMobile}) => {
+  await page.getByRole('button', {name: 'Explore a sample model'}).click();
+  const locations = await geometryLocations(page);
+  for (const [index, scope, text] of [
+    [0, 'point', 'Check clearance at this point.'],
+    [1, 'feature', 'Keep this face free of coating.'],
+    [2, 'part', 'Supplier approval required for this part.'],
+  ] as const) {
+    await showInspector(page);
+    await page.getByRole('button', {name: /^Notes/}).click();
+    await page.getByRole('button', {name: 'Add note', exact: true}).click();
+    await page.getByLabel('Annotation target').selectOption(scope);
+    await pickAt(page, locations[index], isMobile);
+    await expect(page.locator('.note-anchor.attached')).toBeVisible();
+    await page.getByLabel('Annotation text', {exact: true}).fill(text);
+    await page.getByRole('button', {name: 'Save note', exact: true}).click();
+    await expect(page.locator('.review-note')).toHaveCount(index + 1);
+  }
+  await expect(page.locator('.review-pin')).toHaveCount(3);
+  await page.screenshot({path: `artifacts/review-${isMobile ? 'mobile' : 'desktop'}.png`});
+  await page.getByRole('button', {name: 'Edit note 1', exact: true}).click();
+  await page.getByLabel('Edit annotation text').fill('Revised clearance: check with the mating part.');
+  await page.getByRole('button', {name: 'Save changes', exact: true}).click();
+  await page.locator('.review-note').nth(1).getByRole('button', {name: 'Resolve', exact: true}).click();
+  await expect(page.locator('.review-pin')).toHaveCount(2);
+  await page.getByLabel('Show resolved').check();
+  await expect(page.locator('.review-note.resolved')).toHaveCount(1);
+  await page.getByRole('button', {name: 'Measure', exact: true}).click();
+  await page.locator('.units-details summary').click();
+  await page.getByLabel('Source units', {exact: true}).selectOption('cm');
+  await page.getByLabel('Custom scale factor').fill('2.5');
+  await page.evaluate(() => Object.defineProperty(navigator, 'canShare', {configurable: true, value: () => false}));
+  const downloadPromise = page.waitForEvent('download');
+  await page.locator('header').getByRole('button', {name: 'Share commented project', exact: true}).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/\.sz3d$/);
+  const stream = await download.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
+  await page.reload();
+  await page.locator('input[type=file]').setInputFiles({name: download.suggestedFilename(), mimeType: 'application/octet-stream', buffer: Buffer.concat(chunks)});
+  await expect(page.locator('.review-note')).toHaveCount(2);
+  await expect(page.locator('.review-note').first()).toContainText('Revised clearance');
+  await expect(page.locator('.review-pin')).toHaveCount(2);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await page.getByLabel('Show resolved').check();
+  await expect(page.locator('.review-note')).toHaveCount(3);
+  await page.getByRole('button', {name: 'Focus note 3', exact: true}).click();
+  await expect(page.locator('.review-pin.selected')).toHaveCount(1);
+  await page.getByRole('button', {name: 'Measure', exact: true}).click();
+  await page.locator('.units-details summary').click();
+  await expect(page.getByLabel('Source units', {exact: true})).toHaveValue('cm');
+  await expect(page.getByLabel('Custom scale factor')).toHaveValue('2.5');
+});
+
+test('render styles and lighting are available in desktop and touch settings', async ({page}) => {
+  await page.getByRole('button', {name: 'Explore a sample model'}).click();
+  await page.getByRole('button', {name: 'Settings', exact: true}).click();
+  await page.getByLabel('Settings render style').selectOption('hidden-line');
+  await page.getByLabel('Light direction', {exact: true}).fill('120');
+  await page.getByLabel('Light elevation', {exact: true}).fill('25');
+  await page.getByLabel('Uniform fill light', {exact: true}).check();
+  await page.getByLabel('Uniform light intensity', {exact: true}).fill('1.5');
+  await page.getByRole('button', {name: 'Done', exact: true}).click();
+  await expect(page.locator('canvas').first()).toBeVisible();
+  await page.getByRole('button', {name: 'Settings', exact: true}).click();
+  await expect(page.getByLabel('Settings render style')).toHaveValue('hidden-line');
+  await expect(page.getByLabel('Light direction', {exact: true})).toHaveValue('120');
+  await expect(page.getByLabel('Uniform fill light', {exact: true})).toBeChecked();
+  await page.getByLabel('Settings render style').selectOption('shaded');
+  await page.getByRole('button', {name: 'Reset lighting', exact: true}).click();
+  await expect(page.getByLabel('Uniform fill light', {exact: true})).not.toBeChecked();
+});
+
+test('CAD review bundle carries the original STEP and exact saved measurements', async ({page, isMobile}) => {
+  await page.locator('input[type=file]').setInputFiles(fixture);
+  await expect(page.locator('.model-badge')).toContainText('CAD model', {timeout: 120_000});
+  const locations = await geometryLocations(page);
+  await page.getByTitle('Pick CAD features · E', {exact: true}).click();
+  await page.getByLabel('Feature selection filter').selectOption('face');
+  await pickAt(page, locations[0], isMobile);
+  await pickAt(page, locations[1], isMobile);
+  await expect(page.locator('.accuracy-tag')).toContainText('Exact CAD geometry', {timeout: 60_000});
+  const distance = await page.locator('.result-hero strong').innerText();
+  await page.getByRole('button', {name: 'Save measurement', exact: true}).click();
+  await page.getByRole('button', {name: /^Notes/}).click();
+  await page.getByRole('button', {name: 'Add note', exact: true}).click();
+  await page.getByLabel('Annotation target').selectOption('feature');
+  await pickAt(page, locations[0], isMobile);
+  await expect(page.locator('.note-anchor.attached')).toContainText('face');
+  await page.getByLabel('Annotation text', {exact: true}).fill('Verify this CAD face before manufacturing.');
+  await page.getByRole('button', {name: 'Save note', exact: true}).click();
+  await page.evaluate(() => Object.defineProperty(navigator, 'canShare', {configurable: true, value: () => false}));
+  const wait = page.waitForEvent('download');
+  await page.locator('header').getByRole('button', {name: 'Share commented project', exact: true}).click();
+  const download = await wait, stream = await download.createReadStream(), chunks: Buffer[] = [];
+  for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
+  await page.reload();
+  await page.locator('input[type=file]').setInputFiles({name: download.suggestedFilename(), mimeType: 'application/octet-stream', buffer: Buffer.concat(chunks)});
+  await expect(page.locator('.model-badge')).toContainText('CAD model', {timeout: 120_000});
+  await expect(page.locator('.review-note')).toHaveCount(1);
+  await expect(page.locator('.review-note')).toContainText('Verify this CAD face');
+  await expect(page.locator('.note-location small')).toContainText('face');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await page.getByRole('button', {name: 'Saved 1', exact: true}).click();
+  await page.locator('.saved-measurement > button').first().click();
+  await expect(page.locator('.result-hero strong')).toHaveText(distance);
+  await expect(page.locator('.accuracy-tag')).toContainText('Exact CAD geometry');
+});
+
+test('ray tracing reports unsupported devices and keeps the normal viewer usable', async ({page}) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, 'gpu', {configurable: true, value: undefined}));
+  await page.reload();
+  await page.getByRole('button', {name: 'Explore a sample model'}).click();
+  await page.getByRole('button', {name: 'Settings', exact: true}).click();
+  await page.getByLabel('GPU ray tracing', {exact: true}).check();
+  await expect(page.locator('.raytrace-controls')).toContainText('requires WebGPU', {timeout: 20_000});
+  await page.getByLabel('GPU ray tracing', {exact: true}).uncheck();
+  await page.getByRole('button', {name: 'Done', exact: true}).click();
+  await expect(page.locator('.ray-status-badge')).toHaveCount(0);
+  await page.getByRole('button', {name: 'Fit model', exact: true}).click();
+  await expect(page.locator('canvas').first()).toBeVisible();
+});

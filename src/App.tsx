@@ -42,10 +42,27 @@ import {
   ZoomIn,
   ZoomOut,
   Info,
+  MessageSquare,
+  Share2,
 } from "lucide-react";
 import { Viewport } from "./components/Viewport";
 import { AssemblyTree } from "./components/AssemblyTree";
+import { ReviewPanel } from "./components/ReviewPanel";
+import { ReviewPins } from "./components/ReviewPins";
+import {
+  DisplaySettings,
+  RenderStyleSelect,
+  DEFAULT_DISPLAY,
+  type DisplayOptions,
+} from "./components/DisplaySettings";
+import {
+  exportProject,
+  readProject,
+  restoreProjectState,
+  type ReviewNote,
+} from "./core/project-file";
 import { Viewer } from "./core/viewer";
+import type { RayTracingState } from "./core/ray-tracing-types";
 import { ACCEPT, importFiles, disposeDocument } from "./core/importers";
 import { createDemo } from "./core/demo";
 import { cad } from "./core/cad-client";
@@ -79,6 +96,11 @@ const readPrefs = () => {
   }
 };
 const uid = createId;
+function noteTarget(pick: Pick, scope: ReviewNote["scope"]): Pick {
+  return scope === "feature"
+    ? pick
+    : { ...pick, kind: "point", elementId: undefined };
+}
 function IconButton({
   title,
   active,
@@ -163,6 +185,20 @@ function App() {
     preferences.current.navigationDetail === "full" ? "full" : "auto",
   );
   const [usingNavigationDetail, setUsingNavigationDetail] = useState(false);
+  const [display, setDisplay] = useState<DisplayOptions>(DEFAULT_DISPLAY);
+  const [rayTracing, setRayTracing] = useState(false);
+  const [raySamples, setRaySamples] = useState<32 | 128 | 512>(128);
+  const [rayResolution, setRayResolution] = useState<0.5 | 1>(0.5);
+  const [rayState, setRayState] = useState<RayTracingState>();
+  const lastRayUpdate = useRef(0);
+  const [notes, setNotes] = useState<ReviewNote[]>([]);
+  const [selectedNote, setSelectedNote] = useState<string>();
+  const [noteScope, setNoteScope] = useState<ReviewNote["scope"]>("point");
+  const [placingNote, setPlacingNote] = useState(false);
+  const [noteAnchor, setNoteAnchor] = useState<Pick>();
+  const [sharing, setSharing] = useState(false);
+  const sourceFiles = useRef<File[]>([]);
+  const demoProject = useRef(false);
   const [edges, setEdges] = useState(false),
     [grid, setGrid] = useState(true),
     [opacity, setOpacity] = useState(1),
@@ -173,7 +209,7 @@ function App() {
     [ortho, setOrtho] = useState(false);
   const [left, setLeft] = useState(window.innerWidth > 900),
     [right, setRight] = useState(window.innerWidth > 700),
-    [panel, setPanel] = useState<"measure" | "saved">("measure");
+    [panel, setPanel] = useState<"measure" | "saved" | "review">("measure");
   const [loading, setLoading] = useState(""),
     [error, setError] = useState(""),
     [toast, setToast] = useState(""),
@@ -226,6 +262,8 @@ function App() {
     setProperties(undefined);
     setPair(undefined);
     setMeasuring(false);
+    setPlacingNote(false);
+    setNoteAnchor(undefined);
     viewer.current?.highlight([]);
     viewer.current?.setOverlay({ points: [] });
   }, []);
@@ -233,6 +271,8 @@ function App() {
     (model: ModelDocument) => {
       clear();
       setSaved([]);
+      setNotes([]);
+      setSelectedNote(undefined);
       setHidden(new Set());
       setSelectedPart(undefined);
       setSource(model.unit);
@@ -266,6 +306,10 @@ function App() {
         theme,
         navigation,
         navigationDetail,
+        ...display,
+        rayTracing,
+        raySamples,
+        rayResolution,
       });
   }, [
     ready,
@@ -281,6 +325,10 @@ function App() {
     theme,
     navigation,
     navigationDetail,
+    display,
+    rayTracing,
+    raySamples,
+    rayResolution,
   ]);
   useEffect(() => {
     viewer.current?.setSelectionMode(mode, filter, snap);
@@ -292,6 +340,8 @@ function App() {
     loadEpoch.current++;
     cad.cancel();
     if (docRef.current) disposeDocument(docRef.current);
+    sourceFiles.current = [];
+    demoProject.current = true;
     install(createDemo());
     setLoading("");
   };
@@ -306,12 +356,48 @@ function App() {
       if (docRef.current) disposeDocument(docRef.current);
       setLoading("Reading file…");
       try {
-        const model = await importFiles(files, quality, setLoading);
+        const projectFile = files.find((file) =>
+          file.name.toLowerCase().endsWith(".sz3d"),
+        );
+        const project = projectFile
+          ? await readProject(projectFile)
+          : undefined;
+        const modelFiles = project?.files ?? files;
+        const model = project?.demo
+          ? createDemo()
+          : await importFiles(
+              modelFiles,
+              project?.quality ?? quality,
+              setLoading,
+            );
+        let restored;
+        try {
+          restored = project
+            ? await restoreProjectState(project, model)
+            : undefined;
+        } catch (failure) {
+          disposeDocument(model);
+          throw failure;
+        }
         if (generation !== loadEpoch.current) {
           disposeDocument(model);
           return;
         }
+        sourceFiles.current = modelFiles;
+        demoProject.current = project?.demo ?? false;
         install(model);
+        if (restored) {
+          setNotes(restored.notes);
+          setSaved(restored.measurements);
+          setSource(restored.source);
+          setUnit(restored.unit);
+          setScale(restored.scale);
+          setQuality(restored.quality);
+          setPanel("review");
+          setRight(true);
+          if (restored.warnings.length) setError(restored.warnings.join(" "));
+          else notify(`Opened project · ${restored.notes.length} notes`);
+        }
         const next = [
           { name: model.name, format: model.format },
           ...recent.filter((r) => r.name !== model.name),
@@ -338,6 +424,127 @@ function App() {
       setError(String(e));
     }
   }, [load]);
+  const startNote = (scope: ReviewNote["scope"]) => {
+    if (!doc) return;
+    const previous = points.at(-1);
+    clear();
+    setNoteScope(scope);
+    setMode(
+      scope === "part" ? "part" : scope === "feature" ? "feature" : "point",
+    );
+    setPlacingNote(true);
+    setPanel("review");
+    setRight(true);
+    if (previous && (scope !== "feature" || previous.kind !== "point"))
+      setNoteAnchor(noteTarget(previous, scope));
+    else if (scope === "part" && doc && selectedPart) {
+      const part = doc.parts.find((item) => item.id === selectedPart);
+      const geometry = part && doc.geometries.get(part.geometryId);
+      if (part && geometry) {
+        geometry.geometry.computeBoundingBox();
+        const local = geometry.geometry.boundingBox!.getCenter(new T.Vector3());
+        const world = local
+          .clone()
+          .applyMatrix4(new T.Matrix4().fromArray(part.matrix));
+        setNoteAnchor({
+          id: uid(),
+          partId: part.id,
+          partName: part.name,
+          geometryId: part.geometryId,
+          point: world.toArray(),
+          localPoint: local.toArray(),
+          kind: "point",
+          snap: "Part center",
+          matrix: part.matrix.slice(),
+          exactHandle: geometry.exactHandle,
+        });
+      }
+    }
+  };
+  const createNote = (text: string) => {
+    if (!noteAnchor) return;
+    const timestamp = new Date().toISOString();
+    const note: ReviewNote = {
+      id: uid(),
+      text,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      resolved: false,
+      scope: noteScope,
+      anchor: noteAnchor,
+    };
+    setNotes((old) => [...old, note]);
+    setSelectedNote(note.id);
+    setPlacingNote(false);
+    setNoteAnchor(undefined);
+    notify("Note attached to the model");
+  };
+  const selectNote = (note: ReviewNote) => {
+    setSelectedNote(note.id);
+    setSelectedPart(note.anchor.partId);
+    setPlacingNote(false);
+    setMode(
+      note.scope === "part"
+        ? "part"
+        : note.scope === "feature"
+          ? "feature"
+          : "point",
+    );
+    setPanel("review");
+    setRight(true);
+    if (hidden.has(note.anchor.partId))
+      setHidden((old) => {
+        const next = new Set(old);
+        next.delete(note.anchor.partId);
+        return next;
+      });
+    viewer.current?.setSelectionMode(
+      note.scope === "part"
+        ? "part"
+        : note.scope === "feature"
+          ? "feature"
+          : "point",
+      filter,
+      snap,
+    );
+    viewer.current?.highlight([note.anchor]);
+    viewer.current?.focusPick(note.anchor);
+  };
+  const shareProject = async () => {
+    if (!doc || sharing) return;
+    setSharing(true);
+    try {
+      const blob = await exportProject({
+        doc,
+        files: sourceFiles.current,
+        notes,
+        measurements: saved,
+        source,
+        unit,
+        scale,
+        quality,
+        demo: demoProject.current,
+      });
+      const name = doc.name.replace(/\.[^.]+$/, "") + ".sz3d";
+      const file = new File([blob], name, { type: "application/octet-stream" });
+      if (!isNative() && navigator.canShare?.({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: doc.name });
+        } catch (failure) {
+          if (failure instanceof DOMException && failure.name === "AbortError")
+            throw failure;
+          // A large archive may outlive the browser's transient share gesture.
+          await saveBlob(blob, name);
+        }
+      } else await saveBlob(blob, name);
+      notify("Project ready to share · model, notes and measurements included");
+    } catch (failure) {
+      if (!(failure instanceof DOMException && failure.name === "AbortError"))
+        setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setSharing(false);
+    }
+  };
   const cancel = () => {
     loadEpoch.current++;
     cad.cancel();
@@ -528,6 +735,18 @@ function App() {
   );
   const pick = useCallback(
     (p: Pick) => {
+      if (placingNote) {
+        if (noteScope === "feature" && p.kind === "point") {
+          notify("Pick an edge, face or vertex to attach this feature note.");
+          return;
+        }
+        setNoteAnchor(noteTarget(p, noteScope));
+        setSelectedPart(p.partId);
+        viewer.current?.highlight([p]);
+        setPanel("review");
+        setRight(true);
+        return;
+      }
       if (mode === "part") {
         setSelectedPart(p.partId);
         viewer.current?.highlight([p]);
@@ -544,7 +763,7 @@ function App() {
       const next = points.length >= count ? [p] : [...points, p];
       void complete(next);
     },
-    [points, tool, mode, explode, complete],
+    [points, tool, mode, explode, complete, placingNote, noteScope],
   );
   useEffect(() => {
     const p = current?.points || points;
@@ -689,8 +908,22 @@ function App() {
         (doc?.name || "shenzhen-3d") + ".png",
       );
   };
-  const actions = useRef({ open, clear, screenshot, exportMeasurements });
-  actions.current = { open, clear, screenshot, exportMeasurements };
+  const actions = useRef({
+    open,
+    clear,
+    screenshot,
+    exportMeasurements,
+    startNote,
+    shareProject,
+  });
+  actions.current = {
+    open,
+    clear,
+    screenshot,
+    exportMeasurements,
+    startNote,
+    shareProject,
+  };
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       const typing =
@@ -700,6 +933,11 @@ function App() {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
         event.preventDefault();
         void actions.current.open();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void actions.current.shareProject();
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
@@ -733,6 +971,7 @@ function App() {
         setMode("feature");
         actions.current.clear();
       }
+      if (event.key.toLowerCase() === "n") actions.current.startNote("point");
       if (event.key === "?") help.current?.showModal();
       if (event.key === "Delete" || event.key === "Backspace")
         actions.current.clear();
@@ -807,7 +1046,7 @@ function App() {
         accept={
           /Android|iPhone|iPad|iPod/.test(navigator.userAgent)
             ? undefined
-            : ACCEPT
+            : ACCEPT + ",.sz3d"
         }
         multiple
         hidden
@@ -851,6 +1090,15 @@ function App() {
           <span>Open file</span>
           <kbd>⌘ O</kbd>
         </button>
+        {doc && (
+          <IconButton
+            title="Share commented project"
+            disabled={sharing}
+            onClick={() => void shareProject()}
+          >
+            <Share2 size={18} />
+          </IconButton>
+        )}
         <IconButton
           title="Settings"
           onClick={() => settings.current?.showModal()}
@@ -918,6 +1166,23 @@ function App() {
           </IconButton>
         </div>
         <div className="toolbar-cluster display-tools">
+          <RenderStyleSelect
+            value={display.renderStyle}
+            onChange={(renderStyle) => {
+              setDisplay((value) => ({ ...value, renderStyle }));
+              if (renderStyle !== "shaded") setRayTracing(false);
+            }}
+          />
+          <IconButton
+            title="Review notes"
+            active={panel === "review" && right}
+            onClick={() => {
+              setPanel("review");
+              setRight(true);
+            }}
+          >
+            <MessageSquare size={17} />
+          </IconButton>
           <IconButton
             title="Fit model · F"
             onClick={() => viewer.current?.fit()}
@@ -927,13 +1192,15 @@ function App() {
           </IconButton>
           <IconButton
             title="Show edges"
-            active={edges}
+            disabled={display.renderStyle !== "shaded" || rayTracing}
+            active={edges || display.renderStyle === "shaded-edges"}
             onClick={() => setEdges(!edges)}
           >
             <Box size={17} />
           </IconButton>
           <IconButton
             title="Ground grid"
+            disabled={rayTracing}
             active={grid}
             onClick={() => setGrid(!grid)}
           >
@@ -1065,10 +1332,63 @@ function App() {
             onReady={(v) => {
               viewer.current = v;
               v.onNavigationDetail = setUsingNavigationDetail;
+              v.onRayTracingState = (state) => {
+                const now = performance.now();
+                if (
+                  state.status !== "rendering" ||
+                  now - lastRayUpdate.current > 100
+                ) {
+                  lastRayUpdate.current = now;
+                  setRayState(state);
+                }
+              };
               setReady(true);
             }}
             onError={setError}
           />
+          {sharing && (
+            <div className="project-progress" role="status">
+              <LoaderCircle size={15} className="spin" /> Preparing commented
+              project…
+            </div>
+          )}
+          {rayTracing && doc && (
+            <div className="ray-status-badge" role="status">
+              {rayState?.status === "unsupported" ||
+              rayState?.status === "error" ? (
+                <button onClick={() => settings.current?.showModal()}>
+                  Ray tracing unavailable · details
+                </button>
+              ) : (
+                <>
+                  <span
+                    className={
+                      rayState?.status === "ready" ? "status-dot" : "trace-busy"
+                    }
+                  />
+                  {rayState?.status === "preparing"
+                    ? "Preparing ray tracing"
+                    : rayState?.status === "ready"
+                      ? `Ray traced · ${rayState.samples} samples`
+                      : `Ray tracing · ${rayState?.samples ?? 0}/${raySamples}`}
+                  <button
+                    aria-label="Stop ray tracing"
+                    onClick={() => setRayTracing(false)}
+                  >
+                    <X size={13} />
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+          {doc && (
+            <ReviewPins
+              viewer={ready ? viewer.current : undefined}
+              notes={notes}
+              selected={selectedNote}
+              onSelect={selectNote}
+            />
+          )}
           {doc && (
             <>
               <div className="viewport-top">
@@ -1112,7 +1432,9 @@ function App() {
               <div className="viewport-bottom">
                 <span className="pick-instruction">
                   <span className="pick-dot" />
-                  {instruction}
+                  {placingNote
+                    ? `Pick ${noteScope === "part" ? "a part" : noteScope === "feature" ? "a feature" : "a point"} to attach your note`
+                    : instruction}
                 </span>
                 <div className="zoom-controls">
                   <IconButton
@@ -1270,6 +1592,13 @@ function App() {
                 Saved <span>{saved.length}</span>
               </button>
               <button
+                className={panel === "review" ? "selected" : ""}
+                onClick={() => setPanel("review")}
+              >
+                Notes{" "}
+                <span>{notes.filter((note) => !note.resolved).length}</span>
+              </button>
+              <button
                 className="mobile-close icon-button"
                 aria-label="Close measurements"
                 onClick={() => setRight(false)}
@@ -1277,7 +1606,39 @@ function App() {
                 <X size={16} />
               </button>
             </div>
-            {panel === "measure" ? (
+            {panel === "review" ? (
+              <ReviewPanel
+                notes={notes}
+                selected={selectedNote}
+                anchor={noteAnchor}
+                scope={noteScope}
+                placing={placingNote}
+                enabled={!!doc}
+                sharing={sharing}
+                onStart={startNote}
+                onCancel={() => {
+                  setPlacingNote(false);
+                  setNoteAnchor(undefined);
+                }}
+                onCreate={createNote}
+                onSelect={selectNote}
+                onUpdate={(updated) =>
+                  setNotes((old) =>
+                    old.map((note) =>
+                      note.id === updated.id ? updated : note,
+                    ),
+                  )
+                }
+                onDelete={(id) => {
+                  setNotes((old) => old.filter((note) => note.id !== id));
+                  if (selectedNote === id) {
+                    setSelectedNote(undefined);
+                    viewer.current?.highlight([]);
+                  }
+                }}
+                onShare={() => void shareProject()}
+              />
+            ) : panel === "measure" ? (
               <div className="inspector-content">
                 <div className="measurement-tools">
                   <button
@@ -1733,7 +2094,7 @@ function App() {
         <button onClick={() => settings.current?.showModal()}>
           {unit} <ChevronDown size={11} />
         </button>
-        <span className="version">v0.1.1</span>
+        <span className="version">v0.1.2</span>
       </footer>
       {toast && (
         <div className="toast" role="status">
@@ -1808,6 +2169,12 @@ function App() {
           </div>
         </div>
         <p className="help-note">
+          Use <kbd>N</kbd> or the Notes tab to attach a comment to a point,
+          feature or part. <kbd>⌘ / Ctrl S</kbd> shares a project containing the
+          original model, notes and saved measurements. Open that .sz3d file to
+          continue the review.
+        </p>
+        <p className="help-note">
           STEP, IGES and BREP retain CAD topology for exact feature queries.
           Mesh measurements depend on tessellation. “Shortest distance” is
           straight-line separation; “Surface” follows the mesh. Section planes
@@ -1837,13 +2204,17 @@ function App() {
           <h3>View controls</h3>
           <div className="settings-toggles">
             <button
-              className={edges ? "active" : ""}
+              className={
+                edges || display.renderStyle === "shaded-edges" ? "active" : ""
+              }
+              disabled={display.renderStyle !== "shaded" || rayTracing}
               onClick={() => setEdges(!edges)}
             >
               <Box size={16} /> Edges
             </button>
             <button
               className={grid ? "active" : ""}
+              disabled={rayTracing}
               onClick={() => setGrid(!grid)}
             >
               <Grid3X3 size={16} /> Grid
@@ -1899,6 +2270,81 @@ function App() {
               onChange={(e) => setExplode(Number(e.target.value))}
             />
           </label>
+        </div>
+        <DisplaySettings
+          value={display}
+          onChange={(next) => {
+            setDisplay(next);
+            if (next.renderStyle !== "shaded") setRayTracing(false);
+          }}
+        />
+        <div className="raytrace-controls">
+          <label>
+            <span>GPU ray tracing</span>
+            <input
+              type="checkbox"
+              aria-label="GPU ray tracing"
+              checked={rayTracing}
+              disabled={!doc || doc.is2D}
+              onChange={(event) => {
+                setRayTracing(event.target.checked);
+                if (event.target.checked)
+                  setDisplay((value) => ({ ...value, renderStyle: "shaded" }));
+              }}
+            />
+          </label>
+          <p className="render-status">
+            Progressively refines lighting while still. Navigation uses the fast
+            shaded view. The ground grid is omitted from traced views.
+          </p>
+          {rayTracing && (
+            <>
+              <label>
+                Samples
+                <select
+                  aria-label="Ray tracing samples"
+                  value={raySamples}
+                  onChange={(event) =>
+                    setRaySamples(Number(event.target.value) as 32 | 128 | 512)
+                  }
+                >
+                  <option value={32}>32 · Preview</option>
+                  <option value={128}>128 · Balanced</option>
+                  <option value={512}>512 · Refined</option>
+                </select>
+              </label>
+              <label>
+                Resolution
+                <select
+                  aria-label="Ray tracing resolution"
+                  value={rayResolution}
+                  onChange={(event) =>
+                    setRayResolution(Number(event.target.value) as 0.5 | 1)
+                  }
+                >
+                  <option value={0.5}>Half · Faster</option>
+                  <option value={1}>Full · Sharper</option>
+                </select>
+              </label>
+              <p className="render-status" role="status">
+                {rayState?.reason ||
+                  (rayState?.status === "preparing"
+                    ? "Preparing geometry for GPU tracing…"
+                    : rayState?.status === "ready"
+                      ? `Refined · ${rayState.samples} samples`
+                      : rayState?.status === "rendering"
+                        ? `Refining · ${rayState.samples} / ${rayState.target} samples`
+                        : "Starting GPU ray tracing…")}
+              </p>
+              {rayState?.status === "rendering" && (
+                <progress
+                  aria-label="Ray tracing progress"
+                  value={rayState.samples}
+                  max={rayState.target}
+                />
+              )}
+            </>
+          )}
         </div>
         <label>
           Appearance

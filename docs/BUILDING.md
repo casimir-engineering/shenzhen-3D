@@ -65,6 +65,8 @@ npm run test:e2e
 node tests/formats-browser.mjs
 node tests/drawing-browser.mjs
 node scripts/license-audit.mjs
+node tests/render-styles-browser.mjs --software
+node scripts/perf/check-ray-tracing.mjs --sample
 ```
 
 `npm test` runs the unit/geometry suites, including mesh features, source units, formats, drawings and surface routes. The CAD script exercises generated solids and the sample STEP assembly against the pinned exact kernel. The benchmark records local startup/import timing and assembly statistics; it is not a device-wide performance guarantee.
@@ -72,6 +74,8 @@ node scripts/license-audit.mjs
 `benchmark:gpu` needs the development server on port 1420 and runs headed Chromium on the real Apple GPU; keep its window visible. `test:viewer` uses the same server with software rendering for deterministic geometry, material and shader regression checks. Hardware performance and software correctness results are reported separately. The [benchmark guide](../tests/perf/README.md) documents reproducible parameters and comparisons.
 
 Playwright covers the real application in desktop and mobile-sized Chromium projects. Mobile emulation is useful for layout/touch interactions and does not replace Android/iOS device tests. It starts the Vite server unless `E2E_BASE_URL` points to an existing deployment. On a Linux CI machine, use `npx playwright install --with-deps chromium` to include browser system dependencies.
+
+The ray-tracing check requires a genuine WebGPU device and runs headed on Metal; it checks retained sample-assembly instancing, convergence, immutable source geometry, navigation pause/resume and GPU PNG readback. Unsupported devices retain the raster viewer. Run these GPU checks sequentially when measuring performance.
 
 The standalone format browser check isolates XML loaders, companion object URLs and texture decoding from the UI shell. The drawing browser check exercises DXF/DWG parsing and text rendering. Generated evidence lives under ignored `artifacts/`; browser failures retain traces/screenshots under `test-results/`, with the Playwright report under `playwright-report/`.
 
