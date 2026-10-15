@@ -59,16 +59,14 @@ const hardware =
     : {};
 const durationMs = Number(process.env.PERF_DURATION_MS || 8000);
 const cases = (process.env.PERF_CASES || "1,10,50,100,unique10").split(",");
-const browser = await chromium.launch({
-  headless: false,
-  args: [
-    "--use-gl=angle",
-    "--use-angle=metal",
-    "--disable-background-timer-throttling",
-    "--disable-renderer-backgrounding",
-    "--disable-backgrounding-occluded-windows",
-  ],
-});
+const launchArgs = [
+  "--use-gl=angle",
+  "--use-angle=metal",
+  "--disable-background-timer-throttling",
+  "--disable-renderer-backgrounding",
+  "--disable-backgrounding-occluded-windows",
+];
+const browser = await chromium.launch({ headless: false, args: launchArgs });
 const page = await browser.newPage({
   viewport: { width: 1440, height: 900 },
   deviceScaleFactor: Number(process.env.PERF_DPR || 2),
@@ -79,7 +77,7 @@ page.on("console", (message) => {
 page.on("pageerror", (error) => console.error(error));
 try {
   await page.goto(
-    `${process.env.PERF_BASE_URL || "http://127.0.0.1:1420"}/tests/perf/index.html?source=${source}`,
+    `${process.env.PERF_BASE_URL || "http://127.0.0.1:1420"}/tests/perf/index.html?source=${source}&timer=${process.env.PERF_GPU_TIMER === "0" ? "0" : "1"}`,
   );
   await page.waitForFunction(() => !!window.bench, { timeout: 120000 });
   await page.bringToFront();
@@ -100,7 +98,7 @@ try {
       encoding: "utf8",
     }).trim(),
     browserVersion: browser.version(),
-    launchArgs: ["--use-gl=angle", "--use-angle=metal"],
+    launchArgs,
     ...info,
     model: await page.evaluate(() => window.bench.load()),
     cases: [],

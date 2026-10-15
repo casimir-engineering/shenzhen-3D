@@ -12,7 +12,11 @@ const host = document.querySelector("#viewer");
 const viewer = new Viewer(host);
 const gl = viewer.renderer.getContext();
 const debug = gl.getExtension("WEBGL_debug_renderer_info");
-const timer = gl.getExtension("EXT_disjoint_timer_query_webgl2");
+const timerExtension = gl.getExtension("EXT_disjoint_timer_query_webgl2");
+const timer =
+  new URLSearchParams(location.search).get("timer") === "0"
+    ? null
+    : timerExtension;
 const raf = () => new Promise((resolve) => requestAnimationFrame(resolve));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function summary(values) {
@@ -27,10 +31,14 @@ function summary(values) {
 }
 const metric = () => ({
   cpu: [],
+  drawCpu: [],
+  pollCpu: [],
   gpu: [],
   renderTimes: [],
   calls: [],
   triangles: [],
+  bufferWidths: [],
+  bufferHeights: [],
 });
 let active;
 let currentDoc;
@@ -55,10 +63,21 @@ viewer.renderer.render = (...args) => {
     target.renderTimes.push(start);
     target.calls.push(viewer.renderer.info.render.calls);
     target.triangles.push(viewer.renderer.info.render.triangles);
+    target.bufferWidths.push(viewer.renderer.domElement.width);
+    target.bufferHeights.push(viewer.renderer.domElement.height);
   }
   return result;
 };
+const originalDraw = viewer.draw.bind(viewer);
+viewer.draw = (...args) => {
+  const target = active;
+  const start = performance.now();
+  const result = originalDraw(...args);
+  if (target) target.drawCpu.push(performance.now() - start);
+  return result;
+};
 function pollQueries() {
+  const start = performance.now();
   for (let i = pending.length - 1; i >= 0; i--) {
     const { query, target } = pending[i];
     if (!gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE)) continue;
@@ -67,6 +86,7 @@ function pollQueries() {
     gl.deleteQuery(query);
     pending.splice(i, 1);
   }
+  if (active) active.pollCpu.push(performance.now() - start);
 }
 function replicate(base, copies, unique = false) {
   const geometries = new Map(base.geometries),
@@ -177,6 +197,10 @@ async function orbit(ms, measure) {
       ? (1000 * rafIntervals.length) / (rafTimes.at(-1) - rafTimes[0])
       : null,
     renderIntervalMs: summary(intervals),
+    renderBufferWidth: summary(samples.bufferWidths),
+    renderBufferHeight: summary(samples.bufferHeights),
+    cpuViewerDrawMs: summary(samples.drawCpu),
+    cpuQueryPollMs: summary(samples.pollCpu),
     cpuRenderMs: summary(samples.cpu),
     gpuRenderMs: summary(samples.gpu),
     observedRenderFps: intervals.length
@@ -270,7 +294,9 @@ window.bench = {
         ? gl.getParameter(debug.UNMASKED_VENDOR_WEBGL)
         : gl.getParameter(gl.VENDOR),
       version: gl.getParameter(gl.VERSION),
-      timerQuerySupported: !!timer,
+      timerQuerySupported: !!timerExtension,
+      timerQueryEnabled: !!timer,
+      multiDrawSupported: !!gl.getExtension("WEBGL_multi_draw"),
       viewport: {
         width: host.clientWidth,
         height: host.clientHeight,
@@ -305,6 +331,23 @@ window.bench = {
     currentDoc = doc;
     viewer.applyOptions({ ...viewer.options, edges, grid: true });
     const setModelMs = performance.now() - start;
+    const prepareStart = performance.now();
+    await viewer.whenReady;
+    const lodPreparationMs = performance.now() - prepareStart;
+    const lods = [...(viewer.navigationLods?.values() || [])];
+    const lodPreparation = {
+      milliseconds: lodPreparationMs,
+      geometries: lods.length,
+      originalInstancedTriangles: lods.reduce(
+        (sum, lod) => sum + lod.originalTriangleCount * lod.source.count,
+        0,
+      ),
+      lodInstancedTriangles: lods.reduce(
+        (sum, lod) => sum + lod.triangleCount * lod.source.count,
+        0,
+      ),
+      maxRelativeError: Math.max(0, ...lods.map((lod) => lod.relativeError)),
+    };
     await orbit(warmupMs, false);
     const result = await orbit(durationMs, true);
     const picks = await hover();
@@ -314,6 +357,8 @@ window.bench = {
       edges,
       ...describe(doc),
       setModelMs,
+      lodPreparation,
+      renderBatches: viewer.renderBatches?.stats,
       warmupMs,
       durationMs,
       ...result,
