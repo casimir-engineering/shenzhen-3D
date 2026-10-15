@@ -154,6 +154,8 @@ kbd {
 }
 .app {
   height: 100dvh;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
   display: flex;
   flex-direction: column;
   background: var(--bench);
@@ -1516,7 +1518,6 @@ kbd {
     height: 60px;
     padding: 0 10px;
     gap: 5px;
-    padding-top: env(safe-area-inset-top);
   }
   .brand {
     font-size: 18px;
