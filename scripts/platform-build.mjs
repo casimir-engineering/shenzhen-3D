@@ -6,8 +6,8 @@ import { delimiter, dirname } from 'node:path';
 // Reproducible platform entry point; credentials stay in the caller's environment.
 const platform = process.argv[2] ?? 'desktop';
 const extra = process.argv.slice(3);
-// rustup owns mobile targets even when a package-manager Rust is earlier on PATH.
-if (platform === 'android' || platform === 'ios') {
+// rustup owns cross-compilation targets even when package-manager Rust is earlier on PATH.
+if (platform !== 'web') {
   const rustc = spawnSync('rustup', ['which', 'rustc'], { encoding: 'utf8' });
   if (rustc.status === 0) process.env.PATH = dirname(rustc.stdout.trim()) + delimiter + process.env.PATH;
 }
