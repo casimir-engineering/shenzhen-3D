@@ -90,6 +90,7 @@ for (const path of [
   "public/draco/draco_decoder.wasm",
   "public/draco/draco_decoder.js",
   "node_modules/three/examples/jsm/libs/meshopt_decoder.module.js",
+  "node_modules/three/examples/jsm/libs/meshopt_simplifier.module.js",
 ]) {
   const bytes = await readFile(path);
   artifacts.push({

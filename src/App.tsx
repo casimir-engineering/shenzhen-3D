@@ -159,6 +159,10 @@ function App() {
     [navigation, setNavigation] = useState<"mouse" | "trackpad">(
       preferences.current.navigation || "mouse",
     );
+  const [navigationDetail, setNavigationDetail] = useState<"auto" | "full">(
+    preferences.current.navigationDetail === "full" ? "full" : "auto",
+  );
+  const [usingNavigationDetail, setUsingNavigationDetail] = useState(false);
   const [edges, setEdges] = useState(false),
     [grid, setGrid] = useState(true),
     [opacity, setOpacity] = useState(1),
@@ -212,9 +216,9 @@ function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem(
       "shenzhen-preferences",
-      JSON.stringify({ unit, precision, theme, navigation }),
+      JSON.stringify({ unit, precision, theme, navigation, navigationDetail }),
     );
-  }, [unit, precision, theme, navigation]);
+  }, [unit, precision, theme, navigation, navigationDetail]);
   const clear = useCallback(() => {
     epoch.current++;
     setPoints([]);
@@ -261,6 +265,7 @@ function App() {
         hidden,
         theme,
         navigation,
+        navigationDetail,
       });
   }, [
     ready,
@@ -275,6 +280,7 @@ function App() {
     hidden,
     theme,
     navigation,
+    navigationDetail,
   ]);
   useEffect(() => {
     viewer.current?.setSelectionMode(mode, filter, snap);
@@ -1058,6 +1064,7 @@ function App() {
             onHover={setHover}
             onReady={(v) => {
               viewer.current = v;
+              v.onNavigationDetail = setUsingNavigationDetail;
               setReady(true);
             }}
             onError={setError}
@@ -1717,9 +1724,11 @@ function App() {
             : "Local-first"}
         </span>
         <span className="status-navigation">
-          {navigation === "trackpad"
-            ? "Two-finger pan · pinch zoom"
-            : "Drag orbit · right-drag pan · scroll zoom"}
+          {usingNavigationDetail
+            ? "Navigation detail · full detail when still"
+            : navigation === "trackpad"
+              ? "Two-finger pan · pinch zoom"
+              : "Drag orbit · right-drag pan · scroll zoom"}
         </span>
         <button onClick={() => settings.current?.showModal()}>
           {unit} <ChevronDown size={11} />
@@ -1921,6 +1930,23 @@ function App() {
               Trackpad · two fingers pan, pinch zooms
             </option>
           </select>
+        </label>
+        <label>
+          Navigation detail
+          <select
+            aria-label="Navigation detail"
+            value={navigationDetail}
+            onChange={(e) =>
+              setNavigationDetail(e.target.value as "auto" | "full")
+            }
+          >
+            <option value="auto">Automatic · smoother large models</option>
+            <option value="full">Full detail at all times</option>
+          </select>
+          <small>
+            Automatic adjusts distant geometry while moving. Full detail returns
+            when still; measurements always use the original model.
+          </small>
         </label>
         <label>
           Decimal places

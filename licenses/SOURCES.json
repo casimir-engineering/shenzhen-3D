@@ -27,7 +27,7 @@
       "provenanceLimit": "Exact Draco compiler/source build revision not declared by the bundled README"
     },
     {
-      "name": "meshoptimizer decoder",
+      "name": "meshoptimizer decoder and navigation simplifier",
       "version": "1.1",
       "revision": "dc9d09ed83e1004aef47a1c3c597e0ec64848a37",
       "source": "https://github.com/zeux/meshoptimizer/tree/dc9d09ed83e1004aef47a1c3c597e0ec64848a37"

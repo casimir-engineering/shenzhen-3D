@@ -5,6 +5,8 @@ import { analyzeMeshFeature } from "./mesh-features";
 import { createId } from "./id";
 import { createInstancedEdges } from "./gpu-edges";
 import { ScenePickingIndex } from "./scene-picking";
+import { createRenderBatches, type RenderBatches } from "./render-batches";
+import { createNavigationLods, type NavigationLod } from "./navigation-lod";
 import type {
   ModelDocument,
   Part,
@@ -26,6 +28,7 @@ export interface ViewOptions {
   hidden: Set<string>;
   theme: "dark" | "light";
   navigation: "mouse" | "trackpad";
+  navigationDetail?: "auto" | "full";
 }
 export interface OverlayData {
   points: Vec3[];
@@ -51,6 +54,15 @@ export class Viewer {
   private grid = new T.GridHelper(100, 20, 0x62777e, 0x394b53);
   private model?: ModelDocument;
   private batches = new Map<string, T.InstancedMesh>();
+  private renderBatches?: RenderBatches;
+  private navigationLods = new Map<T.InstancedMesh, NavigationLod>();
+  private fullGeometries = new Map<T.InstancedMesh, T.BufferGeometry>();
+  private lodAbort?: AbortController;
+  private navigationUntil = 0;
+  private navigationTimer = 0;
+  private usingNavigationDetail = false;
+  /** Background render preparation; measurements and the full model are usable immediately. */
+  whenReady: Promise<void> = Promise.resolve();
   private lineObjects = new Map<string, T.Line>();
   private parts = new Map<string, Part>();
   private partDisplay = new Map<string, T.Matrix4>();
@@ -92,6 +104,7 @@ export class Viewer {
   };
   onPick?: (pick: Pick) => void;
   onHover?: (text: string) => void;
+  onNavigationDetail?: (active: boolean) => void;
   onStats?: (stats: { calls: number; triangles: number }) => void;
   constructor(private host: HTMLElement) {
     this.renderer = new T.WebGLRenderer({
@@ -165,9 +178,15 @@ export class Viewer {
     c.zoomSpeed = 1.1;
     c.touches.ONE = T.TOUCH.ROTATE;
     c.touches.TWO = T.TOUCH.DOLLY_PAN;
-    c.addEventListener("change", this.invalidate);
+    c.addEventListener("change", this.cameraChanged);
     return c;
   }
+  private cameraChanged = () => {
+    this.navigationUntil = performance.now() + 180;
+    window.clearTimeout(this.navigationTimer);
+    this.navigationTimer = window.setTimeout(this.invalidate, 190);
+    this.invalidate();
+  };
   private resize() {
     const width = Math.max(this.host.clientWidth, 1),
       height = Math.max(this.host.clientHeight, 1);
@@ -190,6 +209,7 @@ export class Viewer {
     });
   };
   private draw() {
+    this.updateNavigationDetail();
     const worldPixel = this.worldPerPixel();
     for (const m of this.markers) m.scale.setScalar(worldPixel * 5);
     if (this.overlayData.points.length) {
@@ -210,6 +230,81 @@ export class Viewer {
       calls: this.renderer.info.render.calls,
       triangles: this.renderer.info.render.triangles,
     });
+  }
+  private updateNavigationDetail() {
+    const navigating =
+      this.options.navigationDetail !== "full" &&
+      performance.now() < this.navigationUntil;
+    let active = false;
+    const pixelHeight = this.renderer.domElement.height;
+    this.camera.updateMatrixWorld();
+    const viewCenter = new T.Vector3();
+    for (const [original, rendered] of this.renderBatches?.renderedInstances ??
+      []) {
+      const lod = this.navigationLods.get(rendered);
+      if (!lod) continue;
+      let useLod = false;
+      if (navigating) {
+        const sphere = original.boundingSphere;
+        const scale = original.userData.maxInstanceScale ?? 1;
+        const nearDistance = sphere
+          ? Math.max(
+              this.camera.near,
+              -viewCenter
+                .copy(sphere.center)
+                .applyMatrix4(this.camera.matrixWorldInverse).z - sphere.radius,
+            )
+          : this.camera.near;
+        const worldPerPixel =
+          this.camera instanceof T.PerspectiveCamera
+            ? (2 *
+                nearDistance *
+                Math.tan(T.MathUtils.degToRad(this.camera.fov / 2))) /
+              pixelHeight
+            : (this.camera.top - this.camera.bottom) /
+              this.camera.zoom /
+              pixelHeight;
+        // Meshoptimizer's estimated geometric error must remain subpixel at
+        // the nearest part of this batch, including scaled/exploded instances.
+        useLod = lod.error * scale <= worldPerPixel * 0.75;
+      }
+      rendered.geometry = useLod
+        ? lod.geometry
+        : this.fullGeometries.get(rendered)!;
+      active ||= useLod;
+    }
+    if (active !== this.usingNavigationDetail) {
+      this.usingNavigationDetail = active;
+      this.onNavigationDetail?.(active);
+    }
+  }
+  private prepareNavigationDetail() {
+    const sources = [...this.renderBatches!.renderedInstances.values()];
+    const triangles = sources.reduce(
+      (sum, mesh) =>
+        sum +
+        ((mesh.geometry.index?.count ??
+          mesh.geometry.attributes.position.count) /
+          3) *
+          mesh.count,
+      0,
+    );
+    if (triangles < 5_000_000) return;
+    const abort = (this.lodAbort = new AbortController());
+    for (const source of sources)
+      this.fullGeometries.set(source, source.geometry);
+    this.whenReady = createNavigationLods(sources, abort.signal)
+      .then((lods) => {
+        if (abort.signal.aborted || this.disposed) {
+          for (const lod of lods.values()) lod.dispose();
+          return;
+        }
+        this.navigationLods = lods;
+        this.invalidate();
+      })
+      .catch(() => {
+        // Navigation acceleration is optional; retain the complete render model.
+      });
   }
   private worldPerPixel() {
     return this.camera instanceof T.PerspectiveCamera
@@ -270,6 +365,7 @@ export class Viewer {
         const cloned = m.clone();
         cloned.userData.sourceOpacity = m.opacity;
         cloned.userData.sourceTransparent = m.transparent;
+        cloned.userData.sourceDepthWrite = m.depthWrite;
         this.materials.push(cloned);
         return cloned;
       });
@@ -297,10 +393,13 @@ export class Viewer {
         });
         mesh.instanceMatrix.setUsage(T.DynamicDrawUsage);
         mesh.computeBoundingSphere();
-        this.content.add(mesh);
         this.batches.set(key, mesh);
       }
     }
+    this.renderBatches = createRenderBatches([...this.batches.values()], {
+      multiDraw: this.renderer.extensions.has("WEBGL_multi_draw"),
+    });
+    for (const object of this.renderBatches.objects) this.content.add(object);
     const size = 10 ** Math.floor(Math.log10(this.radius * 2));
     this.grid.scale.setScalar(size / 10);
     this.grid.position.set(
@@ -319,11 +418,24 @@ export class Viewer {
       this.preset("iso");
     }
     this.fit();
+    this.prepareNavigationDetail();
   }
   clearModel() {
+    this.lodAbort?.abort();
+    this.lodAbort = undefined;
+    this.whenReady = Promise.resolve();
+    for (const [mesh, geometry] of this.fullGeometries)
+      mesh.geometry = geometry;
+    for (const lod of this.navigationLods.values()) lod.dispose();
+    this.navigationLods.clear();
+    this.fullGeometries.clear();
+    this.usingNavigationDetail = false;
+    this.onNavigationDetail?.(false);
     this.cancelHover();
     this.pickingIndex.setObjects([]);
     this.content.clear();
+    this.renderBatches?.dispose();
+    this.renderBatches = undefined;
     this.clearGroup(this.selection);
     this.clearGroup(this.hoverGroup);
     this.batches.forEach((b) => b.dispose());
@@ -515,7 +627,7 @@ export class Viewer {
       const wasClipped = !!m.clippingPlanes?.length;
       m.opacity = (m.userData.sourceOpacity ?? 1) * options.opacity;
       m.transparent = !!m.userData.sourceTransparent || m.opacity < 1;
-      m.depthWrite = m.opacity > 0.9;
+      m.depthWrite = m.userData.sourceDepthWrite !== false && m.opacity > 0.9;
       m.clippingPlanes = options.section ? [plane] : [];
       if (wasTransparent !== m.transparent || wasClipped !== options.section)
         m.needsUpdate = true;
@@ -528,12 +640,27 @@ export class Viewer {
       if (transformsChanged) {
         for (const [key, mesh] of this.batches) {
           const ids = mesh.userData.partIds as string[];
+          let maxScale = 0;
           ids.forEach((id, i) => {
             const p = this.parts.get(id)!;
             const matrix = this.displayMatrix(p, options.explode);
             this.partDisplay.set(id, matrix);
             mesh.setMatrixAt(i, options.hidden.has(id) ? zeroMatrix : matrix);
+            // sqrt(||A||1 * ||A||inf) bounds maximum stretch even for shear.
+            const e = matrix.elements;
+            const columnNorm = Math.max(
+              Math.abs(e[0]) + Math.abs(e[1]) + Math.abs(e[2]),
+              Math.abs(e[4]) + Math.abs(e[5]) + Math.abs(e[6]),
+              Math.abs(e[8]) + Math.abs(e[9]) + Math.abs(e[10]),
+            );
+            const rowNorm = Math.max(
+              Math.abs(e[0]) + Math.abs(e[4]) + Math.abs(e[8]),
+              Math.abs(e[1]) + Math.abs(e[5]) + Math.abs(e[9]),
+              Math.abs(e[2]) + Math.abs(e[6]) + Math.abs(e[10]),
+            );
+            maxScale = Math.max(maxScale, Math.sqrt(columnNorm * rowNorm));
           });
+          mesh.userData.maxInstanceScale = maxScale;
           mesh.instanceMatrix.needsUpdate = true;
           mesh.computeBoundingSphere();
         }
@@ -549,7 +676,9 @@ export class Viewer {
           ...this.lineObjects.values(),
         ]);
         this.transformsDirty = false;
+        this.renderBatches?.syncFromSources();
       }
+      this.renderBatches?.syncMaterials();
       if (options.edges && !this.edgeObjects.length) this.buildEdges();
       for (const e of this.edgeObjects) {
         e.visible = options.edges;
@@ -1023,6 +1152,8 @@ export class Viewer {
     this.invalidate();
   };
   async screenshot() {
+    // Export full geometry even if the request arrives during navigation.
+    this.navigationUntil = 0;
     this.draw();
     const canvas = document.createElement("canvas");
     canvas.width = this.renderer.domElement.width;
@@ -1048,6 +1179,7 @@ export class Viewer {
   dispose() {
     this.disposed = true;
     cancelAnimationFrame(this.frame);
+    window.clearTimeout(this.navigationTimer);
     this.resizeObserver.disconnect();
     this.controls.dispose();
     this.clearModel();
