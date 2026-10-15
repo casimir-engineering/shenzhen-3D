@@ -392,7 +392,6 @@ export class Viewer {
           this.partDisplay.set(p.id, m);
         });
         mesh.instanceMatrix.setUsage(T.DynamicDrawUsage);
-        mesh.computeBoundingSphere();
         this.batches.set(key, mesh);
       }
     }
@@ -641,6 +640,12 @@ export class Viewer {
         for (const [key, mesh] of this.batches) {
           const ids = mesh.userData.partIds as string[];
           let maxScale = 0;
+          if (!mesh.geometry.boundingSphere)
+            mesh.geometry.computeBoundingSphere();
+          const localSphere = mesh.geometry.boundingSphere!;
+          const occurrenceSphere = new T.Sphere();
+          const visibleSphere = mesh.boundingSphere ?? new T.Sphere();
+          visibleSphere.makeEmpty();
           ids.forEach((id, i) => {
             const p = this.parts.get(id)!;
             const matrix = this.displayMatrix(p, options.explode);
@@ -658,11 +663,20 @@ export class Viewer {
               Math.abs(e[1]) + Math.abs(e[5]) + Math.abs(e[9]),
               Math.abs(e[2]) + Math.abs(e[6]) + Math.abs(e[10]),
             );
-            maxScale = Math.max(maxScale, Math.sqrt(columnNorm * rowNorm));
+            const stretch = Math.sqrt(columnNorm * rowNorm);
+            maxScale = Math.max(maxScale, stretch);
+            if (!options.hidden.has(id)) {
+              occurrenceSphere.center
+                .copy(localSphere.center)
+                .applyMatrix4(matrix);
+              occurrenceSphere.radius = localSphere.radius * stretch;
+              visibleSphere.union(occurrenceSphere);
+            }
           });
           mesh.userData.maxInstanceScale = maxScale;
           mesh.instanceMatrix.needsUpdate = true;
-          mesh.computeBoundingSphere();
+          // Ignore hidden zero matrices and conservatively enclose sheared parts.
+          mesh.boundingSphere = visibleSphere;
         }
         for (const [id, line] of this.lineObjects) {
           line.visible = !options.hidden.has(id);

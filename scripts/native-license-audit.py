@@ -15,6 +15,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+VERSION = json.loads((ROOT / 'package.json').read_text())['version']
 TARGETS = [
     'aarch64-apple-darwin', 'x86_64-apple-darwin',
     'x86_64-pc-windows-msvc', 'x86_64-unknown-linux-gnu',
@@ -133,7 +134,7 @@ def main():
     write_json(output / 'inventory.json', manifest)
     write_json(output / 'missing-notices.json', {'scope': 'Report missing source-archive notice files/metadata; do not infer missing rights or fabricate license texts.', 'packages': missing})
     (output / 'README.txt').write_text(
-        'Shenzhen 3D 0.1.0 native dependency attribution supplement\n\n'
+        f'Shenzhen 3D {VERSION} native dependency attribution supplement\n\n'
         'Generated from src-tauri/Cargo.lock and cargo metadata --locked.\n'
         'inventory.json records actual resolved crate versions, declared licenses,\n'
         'registry archive checksums, repository/VCS information, available notice\n'
@@ -151,7 +152,7 @@ def main():
         'which covers OCCT, LibreDWG, Draco and npm dependencies. It does not replace\n'
         'required corresponding-source delivery. Product licensing is unchanged.\n\n'
         'Reproduce: python3 scripts/native-license-audit.py [--offline]\n', encoding='utf-8')
-    archive = ROOT / 'artifacts/releases/shenzhen-3d-0.1.0-native-notices.zip'
+    archive = ROOT / f'artifacts/releases/shenzhen-3d-{VERSION}-native-notices.zip'
     archive.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as bundle:
         for file in sorted(output.rglob('*')):

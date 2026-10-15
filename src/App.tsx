@@ -1733,7 +1733,7 @@ function App() {
         <button onClick={() => settings.current?.showModal()}>
           {unit} <ChevronDown size={11} />
         </button>
-        <span className="version">v0.1</span>
+        <span className="version">v0.1.1</span>
       </footer>
       {toast && (
         <div className="toast" role="status">
