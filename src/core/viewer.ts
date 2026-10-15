@@ -2,6 +2,7 @@ import * as T from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { MeshBVH, acceleratedRaycast } from "three-mesh-bvh";
 import { analyzeMeshFeature } from "./mesh-features";
+import { createId } from "./id";
 import type {
   ModelDocument,
   Part,
@@ -922,7 +923,7 @@ export class Viewer {
       .clone()
       .applyMatrix4(new T.Matrix4().fromArray(part.matrix));
     return {
-      id: crypto.randomUUID(),
+      id: createId(),
       partId: id,
       partName: part.name,
       geometryId: part.geometryId,

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as T from "three";
+import { createId } from "./core/id";
 import {
   Box,
   Upload,
@@ -77,7 +78,7 @@ const readPrefs = () => {
     return {};
   }
 };
-const uid = () => crypto.randomUUID();
+const uid = createId;
 function IconButton({
   title,
   active,
