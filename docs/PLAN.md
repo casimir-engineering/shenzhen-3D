@@ -21,6 +21,15 @@ Worker-isolated CAD and DWG parsing; transferable typed buffers; shared instance
 ## Measurement contract
 Coordinates have a known internal unit, independently converted to display units. Source overrides rescale all length/area/volume results consistently. Point-to-point defaults to ΔX, ΔY, ΔZ and Euclidean shortest distance. Feature minimum distance is distinct from a surface-constrained path. Mesh and tessellated curve results must be labeled approximate. Measurements reference original model coordinates and must not change with explode display offsets.
 
+## 120 Hz performance follow-up
+
+Requested after the first private preview delivery. Measure on the local Apple M5 Max GPU in headed Chromium/Metal at 1440×900 CSS pixels and DPR 2, separately recording browser cadence, CPU submission, GPU elapsed time and hover latency. Keep the original renderer as a reproducible baseline.
+
+1. Remove interaction stalls: add an assembly spatial index above geometry BVHs, coalesce hover events per frame, avoid unchanged transform uploads and shader rebuilds, and instance edge outlines on the GPU. Verify native raycast equivalence, actual edge pixels, selection, clipping, screenshots and mobile interactions.
+2. Reduce draw calls: consolidate material groups in render-only geometry and batch compatible independent meshes. Preserve original topology, triangle identifiers, textures, colors and transparent materials. Verify material groups and geometry ownership before hardware comparison.
+3. Address vertex throughput: use error-bounded render detail during navigation when geometry is too large for the 8.33 ms frame budget. Restore full detail at rest and retain original geometry for picking and measurements. Report submitted triangle counts and quality behavior with performance numbers.
+4. Run paired hardware benchmarks, full functional checks, update the local app, and push verified commits to both private repositories. Treat 120 fps as a measured target for specified workloads, not an unlimited model-size guarantee.
+
 ## Design brief
 Domain: datum planes, calipers, part trees, snapped vertices, cut faces, dimension witnesses.
 Color world: graphite instrument housings, anodized aluminum, pale drafting paper, jade PCB soldermask, copper traces, restrained XYZ axis colors.

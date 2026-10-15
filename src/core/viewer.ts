@@ -3,6 +3,8 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { MeshBVH, acceleratedRaycast } from "three-mesh-bvh";
 import { analyzeMeshFeature } from "./mesh-features";
 import { createId } from "./id";
+import { createInstancedEdges } from "./gpu-edges";
+import { ScenePickingIndex } from "./scene-picking";
 import type {
   ModelDocument,
   Part,
@@ -58,6 +60,11 @@ export class Viewer {
   private center = new T.Vector3();
   private radius = 50;
   private raycaster = new T.Raycaster();
+  private pickingIndex = new ScenePickingIndex();
+  private sectionPlane = new T.Plane();
+  private transformsDirty = false;
+  private hoverFrame = 0;
+  private hoverEvent?: PointerEvent;
   private pointerStart?: { x: number; y: number; time: number };
   private pendingPick?: Pick;
   private activePointers = new Set<number>();
@@ -90,7 +97,7 @@ export class Viewer {
     this.renderer = new T.WebGLRenderer({
       antialias: true,
       alpha: false,
-      preserveDrawingBuffer: true,
+      preserveDrawingBuffer: false,
       powerPreference: "high-performance",
     });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -247,7 +254,12 @@ export class Viewer {
     for (const [key, parts] of partGroups) {
       const data = doc.geometries.get(key)!;
       const geo = data.geometry;
-      if (!data.lines && geo.index && geo.attributes.position.count > 20) {
+      if (
+        !data.lines &&
+        !geo.boundsTree &&
+        geo.index &&
+        geo.attributes.position.count > 20
+      ) {
         try {
           geo.boundsTree = new MeshBVH(geo, { indirect: true });
         } catch {
@@ -257,6 +269,7 @@ export class Viewer {
       const materials = data.materials.map((m) => {
         const cloned = m.clone();
         cloned.userData.sourceOpacity = m.opacity;
+        cloned.userData.sourceTransparent = m.transparent;
         this.materials.push(cloned);
         return cloned;
       });
@@ -297,6 +310,7 @@ export class Viewer {
     );
     this.controls.mouseButtons.LEFT = doc.is2D ? T.MOUSE.PAN : T.MOUSE.ROTATE;
     this.controls.touches.ONE = doc.is2D ? T.TOUCH.PAN : T.TOUCH.ROTATE;
+    this.transformsDirty = true;
     this.applyOptions(this.options);
     if (doc.is2D) {
       this.setProjection(true);
@@ -307,6 +321,8 @@ export class Viewer {
     this.fit();
   }
   clearModel() {
+    this.cancelHover();
+    this.pickingIndex.setObjects([]);
     this.content.clear();
     this.clearGroup(this.selection);
     this.clearGroup(this.hoverGroup);
@@ -491,44 +507,50 @@ export class Viewer {
         ? 0
         : this.bounds.min[options.sectionAxis],
       max = this.bounds.isEmpty() ? 1 : this.bounds.max[options.sectionAxis];
-    const plane = new T.Plane(
-      axis.clone().negate(),
-      min + (max - min) * options.sectionPosition,
-    );
+    const plane = this.sectionPlane;
+    plane.normal.copy(axis).negate();
+    plane.constant = min + (max - min) * options.sectionPosition;
     for (const m of this.materials) {
+      const wasTransparent = m.transparent;
+      const wasClipped = !!m.clippingPlanes?.length;
       m.opacity = (m.userData.sourceOpacity ?? 1) * options.opacity;
-      m.transparent = m.opacity < 1;
+      m.transparent = !!m.userData.sourceTransparent || m.opacity < 1;
       m.depthWrite = m.opacity > 0.9;
       m.clippingPlanes = options.section ? [plane] : [];
-      m.needsUpdate = true;
+      if (wasTransparent !== m.transparent || wasClipped !== options.section)
+        m.needsUpdate = true;
     }
     if (this.model) {
-      for (const [key, mesh] of this.batches) {
-        const ids = mesh.userData.partIds as string[];
-        ids.forEach((id, i) => {
-          const p = this.parts.get(id)!;
-          const matrix = this.displayMatrix(p, options.explode);
-          this.partDisplay.set(id, matrix);
-          mesh.setMatrixAt(i, options.hidden.has(id) ? zeroMatrix : matrix);
-        });
-        mesh.instanceMatrix.needsUpdate = true;
-        mesh.computeBoundingSphere();
+      const transformsChanged =
+        this.transformsDirty ||
+        old.explode !== options.explode ||
+        old.hidden !== options.hidden;
+      if (transformsChanged) {
+        for (const [key, mesh] of this.batches) {
+          const ids = mesh.userData.partIds as string[];
+          ids.forEach((id, i) => {
+            const p = this.parts.get(id)!;
+            const matrix = this.displayMatrix(p, options.explode);
+            this.partDisplay.set(id, matrix);
+            mesh.setMatrixAt(i, options.hidden.has(id) ? zeroMatrix : matrix);
+          });
+          mesh.instanceMatrix.needsUpdate = true;
+          mesh.computeBoundingSphere();
+        }
+        for (const [id, line] of this.lineObjects) {
+          line.visible = !options.hidden.has(id);
+          line.matrix.copy(
+            this.displayMatrix(this.parts.get(id)!, options.explode),
+          );
+          this.partDisplay.set(id, line.matrix.clone());
+        }
+        this.pickingIndex.setObjects([
+          ...this.batches.values(),
+          ...this.lineObjects.values(),
+        ]);
+        this.transformsDirty = false;
       }
-      for (const [id, line] of this.lineObjects) {
-        line.visible = !options.hidden.has(id);
-        line.matrix.copy(
-          this.displayMatrix(this.parts.get(id)!, options.explode),
-        );
-        this.partDisplay.set(id, line.matrix.clone());
-      }
-      if (
-        options.edges &&
-        (old.edges !== options.edges ||
-          old.explode !== options.explode ||
-          old.hidden !== options.hidden ||
-          !this.edgeObjects.length)
-      )
-        this.buildEdges();
+      if (options.edges && !this.edgeObjects.length) this.buildEdges();
       for (const e of this.edgeObjects) {
         e.visible = options.edges;
         (e.material as T.LineBasicMaterial).clippingPlanes = options.section
@@ -553,46 +575,11 @@ export class Viewer {
     return matrix;
   }
   private buildEdges() {
-    for (const e of this.edgeObjects) {
-      this.content.remove(e);
-      e.geometry.dispose();
-      (e.material as T.Material).dispose();
+    for (const mesh of this.batches.values()) {
+      const line = createInstancedEdges(mesh);
+      this.content.add(line);
+      this.edgeObjects.push(line);
     }
-    this.edgeObjects = [];
-    const array: number[] = [];
-    const v = new T.Vector3();
-    const edges = new Map<string, T.BufferGeometry>();
-    for (const p of this.parts.values()) {
-      if (this.options.hidden.has(p.id)) continue;
-      const d = this.model!.geometries.get(p.geometryId)!;
-      if (d.lines) continue;
-      let g = edges.get(p.geometryId);
-      if (!g) {
-        g = new T.EdgesGeometry(d.geometry, 25);
-        edges.set(p.geometryId, g);
-      }
-      const pos = g.getAttribute("position");
-      for (let i = 0; i < pos.count; i++) {
-        v.fromBufferAttribute(pos, i).applyMatrix4(this.partDisplay.get(p.id)!);
-        array.push(v.x, v.y, v.z);
-      }
-    }
-    const line = new T.LineSegments(
-      new T.BufferGeometry().setAttribute(
-        "position",
-        new T.Float32BufferAttribute(array, 3),
-      ),
-      new T.LineBasicMaterial({
-        color: 0x536e79,
-        transparent: true,
-        opacity: 0.45,
-        depthWrite: false,
-      }),
-    );
-    line.raycast = () => {};
-    this.content.add(line);
-    this.edgeObjects.push(line);
-    edges.forEach((g) => g.dispose());
   }
   private clearGroup(group: T.Group) {
     group.traverse((o) => {
@@ -774,10 +761,7 @@ export class Viewer {
     );
     this.raycaster.params.Line = { threshold: this.worldPerPixel() * 7 };
     this.raycaster.firstHitOnly = !this.options.section;
-    const hits = this.raycaster.intersectObjects(
-      [...this.batches.values(), ...this.lineObjects.values()],
-      false,
-    );
+    const hits = this.pickingIndex.intersect(this.raycaster);
     const hit = hits.find((h) => {
       const id =
         h.object instanceof T.InstancedMesh
@@ -938,6 +922,7 @@ export class Viewer {
     };
   }
   private down = (event: PointerEvent) => {
+    this.cancelHover();
     this.pendingPick = undefined;
     this.activePointers.add(event.pointerId);
     if (this.activePointers.size > 1) this.gesture = true;
@@ -976,6 +961,21 @@ export class Viewer {
   };
   private move = (event: PointerEvent) => {
     if (event.buttons || event.pointerType === "touch") return;
+    this.hoverEvent = event;
+    if (this.hoverFrame) return;
+    this.hoverFrame = requestAnimationFrame(() => {
+      this.hoverFrame = 0;
+      const latest = this.hoverEvent;
+      this.hoverEvent = undefined;
+      if (latest && !this.disposed) this.updateHover(latest);
+    });
+  };
+  private cancelHover() {
+    cancelAnimationFrame(this.hoverFrame);
+    this.hoverFrame = 0;
+    this.hoverEvent = undefined;
+  }
+  private updateHover(event: PointerEvent) {
     const p = this.pick(event);
     this.onHover?.(p ? `${p.partName} · ${p.snap}` : "");
     this.renderer.domElement.style.cursor = p ? "crosshair" : "grab";
@@ -987,8 +987,9 @@ export class Viewer {
         this.highlightPick(p, this.hoverGroup, 0xa7cddd, 0.15);
       this.invalidate();
     }
-  };
+  }
   private leave = () => {
+    this.cancelHover();
     this.lastHoverKey = "";
     this.clearGroup(this.hoverGroup);
     this.onHover?.("");

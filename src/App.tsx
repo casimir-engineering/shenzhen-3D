@@ -564,19 +564,31 @@ function App() {
     setTool(t);
     if (t === "path" || mode === "part") setMode("point");
   };
-  const toggleHidden = (ids: string[]) =>
-    setHidden((old) => {
-      const next = new Set(old);
-      const show = ids.every((id) => next.has(id));
-      ids.forEach((id) => (show ? next.delete(id) : next.add(id)));
-      return next;
-    });
-  const isolate = (ids: string[]) => {
-    if (doc)
-      setHidden(
-        new Set(doc.parts.filter((p) => !ids.includes(p.id)).map((p) => p.id)),
-      );
-  };
+  const toggleHidden = useCallback(
+    (ids: string[]) =>
+      setHidden((old) => {
+        const next = new Set(old);
+        const show = ids.every((id) => next.has(id));
+        ids.forEach((id) => (show ? next.delete(id) : next.add(id)));
+        return next;
+      }),
+    [],
+  );
+  const selectParts = useCallback((ids: string[]) => {
+    setSelectedPart(ids[0]);
+    viewer.current?.fit(ids);
+  }, []);
+  const isolate = useCallback(
+    (ids: string[]) => {
+      if (doc) {
+        const keep = new Set(ids);
+        setHidden(
+          new Set(doc.parts.filter((p) => !keep.has(p.id)).map((p) => p.id)),
+        );
+      }
+    },
+    [doc],
+  );
   const saveMeasurement = () => {
     if (!current) return;
     const m = { ...current, name: current.name + " " + (saved.length + 1) };
@@ -984,10 +996,7 @@ function App() {
                 hidden={hidden}
                 selected={selectedPart}
                 onToggle={toggleHidden}
-                onSelect={(ids) => {
-                  setSelectedPart(ids[0]);
-                  viewer.current?.fit(ids);
-                }}
+                onSelect={selectParts}
                 onIsolate={isolate}
               />
             ) : (

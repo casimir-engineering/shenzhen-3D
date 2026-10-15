@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef } from "react";
+import { memo, useMemo, useState, useRef } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -21,7 +21,7 @@ interface Props {
 export function nodeParts(node: TreeNode): string[] {
   return [...node.partIds, ...node.children.flatMap(nodeParts)];
 }
-export function AssemblyTree({
+export const AssemblyTree = memo(function AssemblyTree({
   doc,
   hidden,
   selected,
@@ -168,4 +168,4 @@ export function AssemblyTree({
       </div>
     </>
   );
-}
+});

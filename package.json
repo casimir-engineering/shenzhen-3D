@@ -10,6 +10,7 @@
     "test:e2e": "playwright test",
     "test:cad": "node scripts/test-cad.mjs",
     "benchmark": "node scripts/benchmark.mjs",
+    "benchmark:gpu": "node scripts/perf/browser-benchmark.mjs",
     "tauri": "tauri",
     "build:mac": "tauri build --bundles app,dmg",
     "build:android": "tauri android build --apk",
