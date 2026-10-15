@@ -7,6 +7,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+env:
+  # These jobs package Tauri; the optional Chromium Mac shell is built separately.
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
