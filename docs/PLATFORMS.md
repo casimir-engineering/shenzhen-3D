@@ -98,3 +98,14 @@ Packages are copied into `artifacts/releases/`:
 | `shenzhen-3d-0.1.0-ios-arm64-simulator.tar.gz` | ARM64 simulator app, preserving executable modes; installed and tested on iOS 26.5. |
 
 Final iOS checks confirmed safe header/toolbar/footer layout, point selections without activating the panel beneath the tap, and the sample STEP opening through Files. `artifacts/native-ios-measurement.png` and `artifacts/native-ios-step.png` record those final checks. `artifacts/native-android-launch.png` records the final Android startup layout. Android touch interaction and physical iOS-device runtime behavior remain unverified.
+
+
+### Performance preview 0.1.1
+
+Both private repositories publish `preview-0.1.1` with 16 SHA-256-verified assets, adding an Apple Silicon Chromium Performance DMG to the lightweight native packages. The source checkpoint is `3d33afb`; the release manifest records independent build inputs. The frozen web/frontend entry hash is `d11268b9fdc47eb5ed1768abcf7144a8cb7e1008f0e6d8b530f80a22112b8772`.
+
+All nine platform jobs passed in both repositories at `0e030c1`; the web job now also checks GPU shader parity and desktop protocol isolation. Locally, 81 unit tests, 12 CAD checks and 10 browser workflows passed, with two deliberate viewport skips.
+
+The signed lightweight Mac 0.1.1 app imported the sample STEP in 2.54 seconds and saved a PNG. The signed Chromium Mac package passed 11 runtime checks, including STEP/WASM, native Open, delayed PNG and CSV downloads, sandbox isolation and no native service worker. Its actual renderer sustained approximately 120 fps in the specified large-model stress cases; see [the hardware report](PERFORMANCE.md). Mac packages are not notarized.
+
+The development-signed Android ARM64 0.1.1 APK installed and launched on an API 35 emulator; welcome/grid rendering, crash-log checks and 16 KB ZIP/ELF alignment passed. The iOS simulator and registered-device packages were rebuilt and their versions inspected; the IPA passed strict development-signature verification. Interactive iOS testing remains the earlier 0.1.0 evidence. No physical mobile device was tested. Windows/Linux startup checks passed in CI; full interactive native coverage remains outstanding.
