@@ -1,10 +1,171 @@
-import {useMemo,useState,useRef} from 'react';
-import {ChevronDown,ChevronRight,Box,Layers,Eye,EyeOff,Search,Focus} from 'lucide-react';
-import type {ModelDocument,TreeNode} from '../core/types';
-interface Props{doc:ModelDocument;hidden:Set<string>;selected?:string;onToggle:(ids:string[])=>void;onSelect:(id:string)=>void;onIsolate:(ids:string[])=>void;}
-export function nodeParts(node:TreeNode):string[]{return [...node.partIds,...node.children.flatMap(nodeParts)]}
-export function AssemblyTree({doc,hidden,selected,onToggle,onSelect,onIsolate}:Props){const [expanded,setExpanded]=useState<Set<string>>(()=>new Set(doc.roots.map(n=>n.id)));const [search,setSearch]=useState('');const [scroll,setScroll]=useState(0);const container=useRef<HTMLDivElement>(null);
- const rows=useMemo(()=>{const out:{node:TreeNode;depth:number}[]=[];const walk=(node:TreeNode,depth:number)=>{const match=!search||node.name.toLowerCase().includes(search.toLowerCase());if(search){if(match)out.push({node,depth:0});node.children.forEach(n=>walk(n,0));}else{out.push({node,depth});if(expanded.has(node.id))node.children.forEach(n=>walk(n,depth+1));}};doc.roots.forEach(n=>walk(n,0));return out},[doc,search,expanded]);
- const start=Math.max(0,Math.floor(scroll/32)-5),visible=rows.slice(start,start+45);
- return <><div className="tree-search"><Search size={14}/><input aria-label="Search assembly" placeholder="Find a part…" value={search} onChange={e=>{setSearch(e.target.value);setScroll(0);if(container.current)container.current.scrollTop=0}}/><kbd>⌘ F</kbd></div><div className="tree-scroll" ref={container} onScroll={e=>setScroll(e.currentTarget.scrollTop)} role="tree" aria-label="Assembly structure"><div style={{height:rows.length*32,position:'relative'}}>{visible.map(({node,depth},i)=>{const ids=nodeParts(node);const allHidden=ids.length>0&&ids.every(id=>hidden.has(id));const active=!!selected&&ids.includes(selected);return <div className={`tree-row ${active?'selected':''} ${allHidden?'muted':''}`} role="treeitem" aria-selected={active} aria-level={depth+1} aria-expanded={node.children.length?expanded.has(node.id):undefined} key={node.id} style={{position:'absolute',top:(start+i)*32,left:0,right:0,paddingLeft:8+depth*12}}><button className="tree-expand" aria-label={expanded.has(node.id)?'Collapse '+node.name:'Expand '+node.name} disabled={!node.children.length} onClick={()=>setExpanded(old=>{const next=new Set(old);next.has(node.id)?next.delete(node.id):next.add(node.id);return next})}>{node.children.length?(expanded.has(node.id)?<ChevronDown size={12}/>:<ChevronRight size={12}/>):<span/>}</button><button className="tree-name" title={node.name} onClick={()=>ids[0]&&onSelect(ids[0])}>{node.children.length?<Layers size={13}/>:<Box size={13}/>}<span>{node.name}</span></button><button className="tree-action" title="Isolate" aria-label={'Isolate '+node.name} onClick={()=>onIsolate(ids)}><Focus size={13}/></button><button className="tree-action" title={allHidden?'Show':'Hide'} aria-label={(allHidden?'Show ':'Hide ')+node.name} onClick={()=>onToggle(ids)}>{allHidden?<EyeOff size={13}/>:<Eye size={13}/>}</button></div>})}</div></div><div className="panel-foot">{doc.parts.length.toLocaleString()} instances <span>·</span> {doc.geometries.size.toLocaleString()} geometries</div></>;
+import { useMemo, useState, useRef } from "react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Box,
+  Layers,
+  Eye,
+  EyeOff,
+  Search,
+  Focus,
+} from "lucide-react";
+import type { ModelDocument, TreeNode } from "../core/types";
+interface Props {
+  doc: ModelDocument;
+  hidden: Set<string>;
+  selected?: string;
+  onToggle: (ids: string[]) => void;
+  onSelect: (ids: string[]) => void;
+  onIsolate: (ids: string[]) => void;
+}
+export function nodeParts(node: TreeNode): string[] {
+  return [...node.partIds, ...node.children.flatMap(nodeParts)];
+}
+export function AssemblyTree({
+  doc,
+  hidden,
+  selected,
+  onToggle,
+  onSelect,
+  onIsolate,
+}: Props) {
+  const [expanded, setExpanded] = useState<Set<string>>(
+    () => new Set(doc.roots.map((n) => n.id)),
+  );
+  const [search, setSearch] = useState("");
+  const [scroll, setScroll] = useState(0);
+  const container = useRef<HTMLDivElement>(null);
+  const rows = useMemo(() => {
+    const out: { node: TreeNode; depth: number }[] = [];
+    const walk = (node: TreeNode, depth: number) => {
+      const match =
+        !search || node.name.toLowerCase().includes(search.toLowerCase());
+      if (search) {
+        if (match) out.push({ node, depth: 0 });
+        node.children.forEach((n) => walk(n, 0));
+      } else {
+        out.push({ node, depth });
+        if (expanded.has(node.id))
+          node.children.forEach((n) => walk(n, depth + 1));
+      }
+    };
+    doc.roots.forEach((n) => walk(n, 0));
+    return out;
+  }, [doc, search, expanded]);
+  const start = Math.max(0, Math.floor(scroll / 32) - 5),
+    visible = rows.slice(start, start + 45);
+  return (
+    <>
+      <div className="tree-search">
+        <Search size={14} />
+        <input
+          aria-label="Search assembly"
+          placeholder="Find a part…"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setScroll(0);
+            if (container.current) container.current.scrollTop = 0;
+          }}
+        />
+        <kbd>⌘ F</kbd>
+      </div>
+      <div
+        className="tree-scroll"
+        ref={container}
+        onScroll={(e) => setScroll(e.currentTarget.scrollTop)}
+        role="tree"
+        aria-label="Assembly structure"
+      >
+        <div style={{ height: rows.length * 32, position: "relative" }}>
+          {visible.map(({ node, depth }, i) => {
+            const ids = nodeParts(node);
+            const allHidden =
+              ids.length > 0 && ids.every((id) => hidden.has(id));
+            const active = !!selected && ids.includes(selected);
+            return (
+              <div
+                className={`tree-row ${active ? "selected" : ""} ${allHidden ? "muted" : ""}`}
+                role="treeitem"
+                aria-selected={active}
+                aria-level={depth + 1}
+                aria-expanded={
+                  node.children.length ? expanded.has(node.id) : undefined
+                }
+                key={node.id}
+                style={{
+                  position: "absolute",
+                  top: (start + i) * 32,
+                  left: 0,
+                  right: 0,
+                  paddingLeft: 8 + depth * 12,
+                }}
+              >
+                <button
+                  className="tree-expand"
+                  aria-label={
+                    expanded.has(node.id)
+                      ? "Collapse " + node.name
+                      : "Expand " + node.name
+                  }
+                  disabled={!node.children.length}
+                  onClick={() =>
+                    setExpanded((old) => {
+                      const next = new Set(old);
+                      next.has(node.id)
+                        ? next.delete(node.id)
+                        : next.add(node.id);
+                      return next;
+                    })
+                  }
+                >
+                  {node.children.length ? (
+                    expanded.has(node.id) ? (
+                      <ChevronDown size={12} />
+                    ) : (
+                      <ChevronRight size={12} />
+                    )
+                  ) : (
+                    <span />
+                  )}
+                </button>
+                <button
+                  className="tree-name"
+                  title={node.name}
+                  onClick={() => ids[0] && onSelect(ids)}
+                >
+                  {node.children.length ? (
+                    <Layers size={13} />
+                  ) : (
+                    <Box size={13} />
+                  )}
+                  <span>{node.name}</span>
+                </button>
+                <button
+                  className="tree-action"
+                  title="Isolate"
+                  aria-label={"Isolate " + node.name}
+                  onClick={() => onIsolate(ids)}
+                >
+                  <Focus size={13} />
+                </button>
+                <button
+                  className="tree-action"
+                  title={allHidden ? "Show" : "Hide"}
+                  aria-label={(allHidden ? "Show " : "Hide ") + node.name}
+                  onClick={() => onToggle(ids)}
+                >
+                  {allHidden ? <EyeOff size={13} /> : <Eye size={13} />}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="panel-foot">
+        {doc.parts.length.toLocaleString()} instances <span>·</span>{" "}
+        {doc.geometries.size.toLocaleString()} geometries
+      </div>
+    </>
+  );
 }
