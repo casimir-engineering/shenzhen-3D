@@ -1,6 +1,6 @@
 # Shenzhen 3D
 
-A local-first CAD, mesh and drawing viewer for inspecting assemblies and taking engineering measurements. One React/Three.js interface runs in the browser/PWA and in Tauri desktop and mobile shells. Model files are processed on the device.
+A local-first CAD, mesh and drawing viewer for inspecting assemblies and taking engineering measurements. One React/Three.js interface runs in the browser/PWA, a Chromium desktop performance shell, and lightweight Tauri desktop/mobile shells. Model files are processed on the device.
 
 [Download the private preview](https://github.com/casimir-engineering/shenzhen-3D/releases/tag/preview-0.1.0) · [Delivery and validation](docs/DELIVERY.md)
 
@@ -14,6 +14,9 @@ Open STEP, IGES or BREP for CAD topology and exact supported feature queries; op
 - Assembly search, visibility and isolation; explode, opacity, section plane and standard views.
 - Source-unit overrides, custom measurement scale, display units and precision; saved session measurements exported as CSV/JSON and viewport screenshots as PNG.
 - Adaptive desktop/mobile controls, mouse/trackpad/touch navigation, and graphite/paper themes.
+- GPU instancing and merged material draws, spatially indexed picking, and automatic navigation detail for large assemblies. Full geometry returns when still; measurements always use the original model.
+
+The [hardware performance report](docs/PERFORMANCE.md) records 120 fps in Chromium on an M5 Max for a 376,000-part stress scene and for 37,600 independently rendered meshes. It includes exact workloads, actual submitted triangle counts, before/after data and platform limits. Choose **Full detail at all times** in Settings to disable navigation detail.
 
 ## Run locally
 

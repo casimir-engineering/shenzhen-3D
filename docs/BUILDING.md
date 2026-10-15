@@ -22,6 +22,15 @@ Production builds generate `dist/sw.js` and include the web manifest. The browse
 
 ## Native targets
 
+The Chromium desktop performance shell avoids the default 60 Hz scheduling observed in the Mac system WebKit view. It uses the same built frontend, sandboxed rendering, local asset protocol, native file picker and save dialog. On Apple Silicon:
+
+```sh
+npm run build:electron:mac
+npm run test:electron
+```
+
+The package script creates a Developer ID signed ARM64 DMG when the configured signing identity is available. Signing does not establish notarization. Electron and Chromium notices are included with the bundle. See [measured renderer performance](PERFORMANCE.md) for browser, Electron and system WebKit evidence. The Tauri builds below remain available as lightweight desktop and mobile packages.
+
 For desktop development:
 
 ```sh
@@ -48,6 +57,8 @@ GitHub Actions is configured to test the web app and package universal macOS, Wi
 ```sh
 npm test
 npm run test:cad
+npm run benchmark:gpu
+npm run test:viewer
 npm run benchmark -- fixtures/sample-assembly.step
 npx playwright install chromium
 npm run test:e2e
@@ -57,6 +68,8 @@ node scripts/license-audit.mjs
 ```
 
 `npm test` runs the unit/geometry suites, including mesh features, source units, formats, drawings and surface routes. The CAD script exercises generated solids and the sample STEP assembly against the pinned exact kernel. The benchmark records local startup/import timing and assembly statistics; it is not a device-wide performance guarantee.
+
+`benchmark:gpu` needs the development server on port 1420 and runs headed Chromium on the real Apple GPU; keep its window visible. `test:viewer` uses the same server with software rendering for deterministic geometry, material and shader regression checks. Hardware performance and software correctness results are reported separately. The [benchmark guide](../tests/perf/README.md) documents reproducible parameters and comparisons.
 
 Playwright covers the real application in desktop and mobile-sized Chromium projects. Mobile emulation is useful for layout/touch interactions and does not replace Android/iOS device tests. It starts the Vite server unless `E2E_BASE_URL` points to an existing deployment. On a Linux CI machine, use `npx playwright install --with-deps chromium` to include browser system dependencies.
 
