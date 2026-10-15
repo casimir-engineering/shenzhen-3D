@@ -93,8 +93,15 @@ describe("optional ray-tracing lifecycle", () => {
       { samples: 32, resolution: 0.5 },
       controller.signal,
     );
-    const worker = FakeWorker.instances[0],
-      snapshot = f.tracer.snapshot();
+    const worker = FakeWorker.instances[0];
+    worker.emit({
+      type: "state",
+      status: "rendering",
+      samples: 1,
+      target: 32,
+      progress: 1 / 32,
+    });
+    const snapshot = f.tracer.snapshot();
     const rejected = expect(snapshot).rejects.toThrow(/canceled/);
     controller.abort();
     await rejected;
@@ -135,6 +142,13 @@ describe("optional ray-tracing lifecycle", () => {
   it("rejects pending exports and hides the overlay on a GPU error", async () => {
     const f = fixture();
     await f.tracer.prepare(f.input);
+    FakeWorker.instances[0].emit({
+      type: "state",
+      status: "rendering",
+      samples: 1,
+      target: 32,
+      progress: 1 / 32,
+    });
     const snapshot = f.tracer.snapshot(),
       rejected = expect(snapshot).rejects.toThrow(/device/);
     FakeWorker.instances[0].emit({
@@ -148,6 +162,24 @@ describe("optional ray-tracing lifecycle", () => {
     await rejected;
     expect(f.canvases[0].style.visibility).toBe("hidden");
     await expect(f.tracer.snapshot()).rejects.toThrow(/not produced/);
+    f.tracer.dispose();
+  });
+  it("rejects excessive output resolution without creating a worker and refuses an unrendered export", async () => {
+    const f = fixture();
+    await expect(f.tracer.snapshot()).rejects.toThrow(/not produced/);
+    const renderer = {
+      domElement: { width: 10000, height: 10000 },
+    } as unknown as T.WebGLRenderer;
+    const states: any[] = [],
+      tracer = new ProgressiveRayTracer(
+        { appendChild() {} } as unknown as HTMLElement,
+        renderer,
+        (s) => states.push(s),
+      );
+    await tracer.prepare(f.input, { samples: 32, resolution: 1 });
+    expect(states.at(-1).reason).toMatch(/pixel budget/);
+    expect(FakeWorker.instances).toHaveLength(0);
+    tracer.dispose();
     f.tracer.dispose();
   });
 });

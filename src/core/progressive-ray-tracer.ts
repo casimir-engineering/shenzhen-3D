@@ -4,6 +4,7 @@ import {
   traceCamera,
   traceTransfers,
 } from "./ray-tracing-scene";
+import { traceResourceEstimate } from "./ray-tracing-types";
 import type {
   RayTracingInput,
   RayTracingSettings,
@@ -104,6 +105,13 @@ export class ProgressiveRayTracer {
         (progress) => this.state("preparing", { progress: progress * 0.2 }),
       ));
       if (abort.signal.aborted || generation !== this.generation) return;
+      const size = this.size();
+      traceResourceEstimate(
+        scene.estimatedBytes,
+        size.width,
+        size.height,
+        scene.budget,
+      );
       const canvas = (this.canvas = document.createElement("canvas"));
       canvas.setAttribute("aria-hidden", "true");
       canvas.className = "ray-tracing-overlay";
@@ -191,7 +199,7 @@ export class ProgressiveRayTracer {
             scene,
             canvas: offscreen,
             settings: this.settings,
-            ...this.size(),
+            ...size,
             paused: true,
           },
           [offscreen, ...traceTransfers(scene)],
@@ -249,7 +257,7 @@ export class ProgressiveRayTracer {
     this.resize();
   }
   snapshot(): Promise<Blob> {
-    if (!this.worker || !this.prepared)
+    if (!this.worker || !this.prepared || !this.imageVisible)
       return Promise.reject(
         new Error("Ray tracing has not produced an image."),
       );

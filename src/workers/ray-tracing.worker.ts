@@ -378,9 +378,11 @@ self.onmessage = async ({ data }) => {
       setCamera(data.camera);
       tracer?.reset();
     } else if (data.type === "pause") {
+      epoch++;
       paused = true;
       clearTimeout(timer);
     } else if (data.type === "resume") {
+      epoch++;
       paused = false;
       void tick();
     } else if (data.type === "settings") {
@@ -402,13 +404,17 @@ self.onmessage = async ({ data }) => {
       target.texture.colorSpace = T.SRGBColorSpace;
       const previous = renderer.getRenderTarget(),
         wasPaused = tracer.pause,
-        wasLoopPaused = paused;
+        wasLoopPaused = paused,
+        snapshotEpoch = epoch;
       paused = true;
       clearTimeout(timer);
       try {
         tracer.pause = true;
         renderer.setRenderTarget(target);
         tracer.renderSample();
+        // Restore the default target before yielding to camera/pause messages.
+        renderer.setRenderTarget(previous);
+        tracer.pause = wasPaused;
         const pixels = await renderer.readRenderTargetPixelsAsync(
           target,
           0,
@@ -435,7 +441,8 @@ self.onmessage = async ({ data }) => {
         tracer.pause = wasPaused;
         renderer.setRenderTarget(previous);
         target.dispose();
-        paused = wasLoopPaused;
+        // A navigation message received during readback owns the newer pause state.
+        if (epoch === snapshotEpoch) paused = wasLoopPaused;
         if (!paused) void tick();
       }
     } else if (data.type === "dispose") {
