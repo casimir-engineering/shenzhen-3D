@@ -26,7 +26,7 @@ For the browser use `npm run dev`. Vite runs on port 1420. Production assets go 
 
 The native shell provides standard File/Edit/Measure/View/Window/Help menus, keyboard shortcuts, resizable windows, full screen, additional viewer windows, and saved window geometry. File dialogs and filesystem access use Tauri's permission system. Only files chosen through the native picker are added to the filesystem scope; there is no blanket home-directory grant. Dropping files uses the viewer's HTML drop handler. Browser file input remains the portable fallback.
 
-Menu actions are delivered to the focused window as `native-menu` events with `{ action }`: `open`, `export`, `fit`, `isometric`, `front`, `top`, `right`, `clear`, `point`, `feature`, `help`. New Window is handled by Rust.
+Menu actions are delivered to the focused window as `native-menu` events with `{ action }`: `open`, `export`, `fit`, `isometric`, `front`, `top`, `right`, `clear`, `point`, `feature`, `settings`, `help`. New Window is handled by Rust.
 
 ## Android
 
@@ -64,3 +64,20 @@ An unsigned archive proves compilation but cannot be installed on an iPhone. For
 - Android native shell: `cargo check --target aarch64-linux-android` passed.
 - iOS native shell: `cargo check --target aarch64-apple-ios` passed. Optional desktop logging is excluded on mobile to avoid an upstream local-time dependency incompatibility on iOS.
 - Cross-platform build and runtime results are recorded in the project validation report and CI logs. A configured packaging job alone is not evidence of a successful build or a device runtime test.
+
+
+### Native runtime checks (16 October 2026)
+
+The production macOS app imported the sample STEP assembly locally in approximately 2.73 seconds in that test. Native Open and Save dialogs worked; a viewport PNG was exported. The native Settings shortcut (Command-comma) opened the settings panel. The universal build includes Apple Silicon and Intel binaries. This local runtime test used Apple Silicon.
+
+The iPhone 17 Pro simulator on iOS 26.5 rendered the demo model and measured two selected points (32.353 mm), with markers and the mobile measurement panel visible. A native Files Save dialog exported a nonempty PNG to the app Documents folder. The sample STEP also opened successfully through Files and rendered all instances. Documents are exposed in Files for opening local models. Simulator behavior does not establish performance on a physical iPhone or iPad.
+
+The Android API 35 ARM64 emulator installed and launched the APK, rendered the WebGL welcome screen, and had no AndroidRuntime crash in the launch log. Android touch gestures have not been exercised. The native activity applies status/navigation-bar and display-cutout insets and uses light system-bar icons on the dark application background.
+
+Evidence images are in the local `artifacts/` directory. CI has also successfully built Linux packages and the iOS simulator/device archives. CI build success is distinct from interactive testing on those operating systems.
+
+A local device IPA was successfully exported with the authorized Apple Development identity and a team provisioning profile covering 19 registered devices, expiring 15 October 2027. Its code signature passed strict verification. This development IPA can be installed on devices covered by that profile; it is not an App Store distribution. No physical iOS device was used for runtime testing. Credentials and profiles are not in the repository.
+
+The optimized local Android ARM64 APK is development-signed for direct installation (approximately 18 MB); the unsigned release APK and AAB are also retained. This signing key is for development, not a production Play release.
+
+CI includes Linux and Windows startup smoke tests that check whether the packaged executable remains alive for 15 seconds (Linux under Xvfb). These checks do not establish that rendering, file dialogs, or interaction work on those systems. The web CI job also runs the real CAD-kernel measurement fixtures with `npm run test:cad`.

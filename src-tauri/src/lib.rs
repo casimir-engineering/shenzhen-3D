@@ -5,13 +5,14 @@ use tauri::{Emitter, Manager};
 fn desktop_menu(app: &tauri::App) -> tauri::Result<()> {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem as P, Submenu};
     let item = |id, label, shortcut| MenuItem::with_id(app, id, label, true, Some(shortcut));
+    let settings = item("settings", "Settings…", "CmdOrCtrl+,")?;
     let open = item("open", "Open File…", "CmdOrCtrl+O")?;
     let new = item("new-window", "New Window", "CmdOrCtrl+N")?;
     let export = item("export", "Export Measurements…", "CmdOrCtrl+Shift+E")?;
     let fit = item("fit", "Fit Model", "CmdOrCtrl+0")?;
     let iso = item("isometric", "Isometric View", "CmdOrCtrl+1")?;
-    let front = item("front", "Front View", "CmdOrCtrl+2")?;
-    let top = item("top", "Top View", "CmdOrCtrl+3")?;
+    let front = item("front", "Front View", "CmdOrCtrl+3")?;
+    let top = item("top", "Top View", "CmdOrCtrl+2")?;
     let right = item("right", "Right View", "CmdOrCtrl+4")?;
     let clear = item("clear", "Clear Measurements", "CmdOrCtrl+Backspace")?;
     let point = item("point", "Point Measurement", "CmdOrCtrl+Shift+P")?;
@@ -90,6 +91,7 @@ fn desktop_menu(app: &tauri::App) -> tauri::Result<()> {
         true,
         &[
             &about,
+            &settings,
             &P::separator(app)?,
             &P::services(app, None)?,
             &P::separator(app)?,
@@ -110,6 +112,8 @@ fn desktop_menu(app: &tauri::App) -> tauri::Result<()> {
     #[cfg(not(target_os = "macos"))]
     let menu = {
         help_menu.append(&about)?;
+        edit.append(&P::separator(app)?)?;
+        edit.append(&settings)?;
         file.append(&P::quit(app, None)?)?;
         Menu::with_items(app, &[&file, &edit, &measure, &view, &window, &help_menu])?
     };

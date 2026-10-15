@@ -21,6 +21,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - run: npm run test:cad
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
@@ -63,9 +64,37 @@ jobs:
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - name: Linux prerequisites
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf rpm
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf rpm xvfb
       - run: npm ci
       - run: node scripts/platform-build.mjs desktop ${{ matrix.args }}
+      - name: Linux startup smoke test
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set +e
+          xvfb-run -a timeout 15s src-tauri/target/release/shenzhen-3d > native-startup.log 2>&1
+          result=$?
+          cat native-startup.log
+          # timeout means the app stayed alive for the full startup interval.
+          test "$result" -eq 124
+      - name: Windows startup smoke test
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $app = Start-Process -FilePath 'src-tauri/target/release/shenzhen-3d.exe' -PassThru -RedirectStandardOutput native-stdout.log -RedirectStandardError native-stderr.log
+          Start-Sleep -Seconds 15
+          if ($app.HasExited) {
+            Get-Content native-stdout.log, native-stderr.log -ErrorAction SilentlyContinue
+            throw "Viewer exited during startup (exit code $($app.ExitCode))"
+          }
+          Stop-Process -Id $app.Id
+      - name: Retain native startup logs
+        if: always() && runner.os != 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-${{ matrix.name }}
+          path: native-*.log
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: shenzhen-3d-${{ matrix.name }}
