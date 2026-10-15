@@ -1,0 +1,16 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const pkg = JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8'));
+const stamp = new Date().toISOString().replaceAll(/[:.]/g, '-');
+const output = path.join(root, 'artifacts/electron', `${pkg.version}-${stamp}`);
+const staging = path.join(output, 'staging');
+await fs.mkdir(staging, { recursive: true });
+await fs.cp(path.join(root, 'dist'), path.join(staging, 'dist'), { recursive: true });
+await fs.cp(path.join(root, 'electron'), path.join(staging, 'electron'), { recursive: true, filter: file => !file.endsWith('.test.cjs') });
+await fs.writeFile(path.join(staging, 'package.json'), JSON.stringify({ name: pkg.name, version: pkg.version, description: pkg.description, author: 'INTUITION Robotique & Technologies', private: true, main: 'electron/main.cjs' }, null, 2));
+const builder = path.join(root, 'node_modules/electron-builder/out/cli/cli.js');
+const child = spawn(process.execPath, [builder, '--projectDir', staging, '--config', path.join(root, 'electron-builder.cjs'), '--config.directories.output', output, '--config.electronVersion', pkg.devDependencies.electron, '--mac', '--arm64'], { cwd: root, stdio: 'inherit' });
+child.on('exit', code => { console.log(`Electron artifacts: ${output}`); process.exitCode = code ?? 1; });

@@ -1,7 +1,7 @@
 {
   "name": "shenzhen-3d",
   "version": "0.1.1",
-  "description": "Shenzhen 3D \u2014 local-first CAD and mesh viewer",
+  "description": "Shenzhen 3D — local-first CAD and mesh viewer",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
@@ -16,7 +16,12 @@
     "build:android": "tauri android build --apk",
     "build:ios": "tauri ios build",
     "prepare:assets": "node scripts/prepare-assets.mjs",
-    "postinstall": "node scripts/prepare-assets.mjs"
+    "postinstall": "node scripts/prepare-assets.mjs",
+    "electron:dev": "electron electron/main.cjs",
+    "package:electron:mac": "node electron/package-mac.mjs",
+    "build:electron:mac": "npm run build && npm run package:electron:mac",
+    "test:electron": "node --test electron/assets.test.cjs && node electron/smoke.mjs",
+    "test:viewer": "node scripts/perf/check-viewer-correctness.mjs --software"
   },
   "keywords": [],
   "author": "",
@@ -44,6 +49,8 @@
     "@types/react-dom": "^19.3.0",
     "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "electron": "44.7.2",
+    "electron-builder": "26.15.3",
     "prettier": "^3.9.10",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
