@@ -11,5 +11,7 @@ playwright-report/
 artifacts/
 public/wasm/
 public/draco/
+public/licenses/
+public/THIRD_PARTY.txt
 
 *.tsbuildinfo
