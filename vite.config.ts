@@ -4,6 +4,7 @@ import { offlinePlugin } from "./scripts/offline-plugin";
 export default defineConfig({
   plugins: [react(), offlinePlugin()],
   clearScreen: false,
+  optimizeDeps: { entries: ["index.html", "tests/perf/index.html", "tests/perf/viewer-correctness.html"] },
   server: {
     port: 1420,
     strictPort: true,
