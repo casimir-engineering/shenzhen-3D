@@ -39,6 +39,10 @@ npx tsc --ignoreConfig --noEmit --skipLibCheck --target es2022 --module esnext -
 | Orthographic projection and section position/axis controls | Toolbar | Settings |
 | Edges, ground grid, PNG screenshot download | Yes | — |
 | Opacity and assembly explode through settings | — | Yes |
+| Point, feature and whole-part notes; edit, resolve and portable project reopen | Yes | Yes |
+| Sample STEP face annotation and exact saved measurement round-trip in `.sz3d` | Yes | Yes |
+| Render-style and movable/uniform-light settings | Yes | Yes |
+| WebGPU capability failure retains the raster viewer | Yes | Yes |
 | Uncaught exceptions and browser console errors | Checked after every test | Checked after every test |
 | Production service worker installation, offline reload and local STEP import | Yes | Yes |
 
@@ -52,6 +56,8 @@ These are functional browser interaction tests. They do not certify visual desig
 
 ## Recorded result
 
-On 2026-10-16, the latest static-build run completed with **10 passed and 2 intentionally skipped** in 2.3 minutes. Each project skips the control test specific to the other viewport; all workflows listed above ran in their applicable project. Exact center/centroid distances, mesh cap properties, the mobile sheet interaction regression, and offline reload plus STEP import passed in both viewports. No uncaught application exceptions or browser console errors occurred. The independent test/config TypeScript check also passed.
+On 2026-10-16, the 0.1.2 production run against Vite preview on port 1424 completed with **18 passed and 2 intentionally skipped** in 1.8 minutes. Each project skips the control test specific to the other viewport; all workflows listed above ran in their applicable project. Exact center/centroid distances, mesh cap properties, the mobile sheet interaction regression, and offline reload plus STEP import passed in both viewports. Portable project tests also retained point/feature/part notes, note edits and resolved state, original STEP files, source/display units, custom scale and exact saved measurements. Render/light controls and explicit unsupported-WebGPU recovery passed on desktop and mobile. No uncaught application exceptions or browser console errors occurred. The independent test/config TypeScript check also passed.
 
 The final build with license notices was also checked using a fixed snapshot served by **Vite preview on port 1425**, which sends `Vary: Origin` for assets. This exposed a cache variant mismatch: service worker installation cached requests without `Origin`, while browser module and stylesheet requests included it. The worker now matches bundled same-origin assets with `ignoreVary: true`. The desktop and mobile offline-only tests then both passed in 13.4 seconds, including a fresh offline reload and local STEP import, with no application or console errors. Results are under `artifacts/e2e-offline-vary-results/`.
+
+A separate headed hardware check (`node scripts/perf/check-app-ray-tracing.mjs`) exercised the production WebGPU worker on the Apple Metal adapter: 32-sample convergence, live measurement labels and numbered comment pins, pin pointer targeting above the rendering canvases, PNG export, and worker removal when switching to hidden-line mode. Source measurements remained unchanged and no application errors occurred. This hardware check is separate from the software-rendered interaction suite and is not an FPS benchmark.
