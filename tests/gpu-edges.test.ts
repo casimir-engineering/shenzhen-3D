@@ -8,6 +8,7 @@ import {
   Raycaster,
   ShaderLib,
   Vector3,
+  GreaterDepth,
 } from "three";
 import type { WebGLRenderer, WebGLProgramParametersWithUniforms } from "three";
 import { createInstancedEdges } from "../src/core/gpu-edges";
@@ -149,5 +150,54 @@ describe("GPU instanced edges", () => {
     expect(onDispose).toHaveBeenCalledTimes(1);
     expect(edges.geometry.getAttribute("instanceMatrix")).toBeUndefined();
     expect(source.instanceMatrix).toBe(matrix);
+  });
+
+  it("caches full triangle wires separately from CAD crease edges", () => {
+    const source = mesh(1000);
+    const crease = createInstancedEdges(source);
+    const wire = createInstancedEdges(source, 0xffffff, 25, {
+      wireframe: true,
+    });
+    expect(crease.geometry.getAttribute("position").count).toBe(24);
+    expect(wire.geometry.getAttribute("position").count).toBe(36);
+    expect(wire.geometry.getAttribute("instanceMatrix")).toBe(
+      source.instanceMatrix,
+    );
+    expect(wire.geometry.instanceCount).toBe(1000);
+    disposeEdges(crease);
+    disposeEdges(wire);
+  });
+
+  it("shares unique edge positions for dashed/solid passes and uses pixel-space dashes", () => {
+    const source = mesh(1000);
+    const solid = createInstancedEdges(source);
+    const dashed = createInstancedEdges(source, 0xffffff, 25, {
+      dashed: true,
+      depthFunc: GreaterDepth,
+    });
+    expect(dashed.geometry.getAttribute("position")).toBe(
+      solid.geometry.getAttribute("position"),
+    );
+    expect(dashed.geometry.getAttribute("edgeOther").count).toBe(24);
+    expect(dashed.geometry.getAttribute("edgeEnd").array.slice(0, 4)).toEqual(
+      new Float32Array([0, 1, 0, 1]),
+    );
+    expect(dashed.material.depthFunc).toBe(GreaterDepth);
+    const shader = {
+      vertexShader: ShaderLib.basic.vertexShader,
+      fragmentShader: ShaderLib.basic.fragmentShader,
+      uniforms: {},
+    } as WebGLProgramParametersWithUniforms;
+    dashed.material.onBeforeCompile(shader, {} as WebGLRenderer);
+    expect(shader.fragmentShader).toContain(
+      "dot( gl_FragCoord.xy, vEdgeDirection )",
+    );
+    expect(shader.vertexShader).toContain(
+      "gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 ); return;",
+    );
+    expect(shader.uniforms.edgeDashSize.value).toBe(6);
+    disposeEdges(dashed);
+    expect(solid.geometry.getAttribute("position").count).toBe(24);
+    disposeEdges(solid);
   });
 });

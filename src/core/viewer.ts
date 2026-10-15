@@ -7,6 +7,12 @@ import { createInstancedEdges } from "./gpu-edges";
 import { ScenePickingIndex } from "./scene-picking";
 import { createRenderBatches, type RenderBatches } from "./render-batches";
 import { createNavigationLods, type NavigationLod } from "./navigation-lod";
+import {
+  applySurfaceRenderStyle,
+  isLineOnlyStyle,
+  updateViewerLighting,
+} from "./render-styles";
+import type { RayTracingState } from "./progressive-ray-tracer";
 import type {
   ModelDocument,
   Part,
@@ -29,6 +35,15 @@ export interface ViewOptions {
   theme: "dark" | "light";
   navigation: "mouse" | "trackpad";
   navigationDetail?: "auto" | "full";
+  renderStyle?: "shaded" | "shaded-edges" | "wireframe" | "hidden-line";
+  lightAzimuth?: number;
+  lightElevation?: number;
+  lightIntensity?: number;
+  uniformLight?: boolean;
+  uniformIntensity?: number;
+  rayTracing?: boolean;
+  raySamples?: 32 | 128 | 512;
+  rayResolution?: 0.5 | 1;
 }
 export interface OverlayData {
   points: Vec3[];
@@ -68,6 +83,10 @@ export class Viewer {
   private partDisplay = new Map<string, T.Matrix4>();
   private materials: T.Material[] = [];
   private edgeObjects: T.LineSegments[] = [];
+  private edgeSets = new Map<string, T.LineSegments[]>();
+  private keyLight = new T.DirectionalLight(0xffffff, 3.2);
+  private uniformLight = new T.AmbientLight(0xffffff, 0);
+  private lightDirection = new T.Vector3(1, -2, 3).normalize();
   private bounds = new T.Box3();
   private center = new T.Vector3();
   private radius = 50;
@@ -105,6 +124,8 @@ export class Viewer {
   onPick?: (pick: Pick) => void;
   onHover?: (text: string) => void;
   onNavigationDetail?: (active: boolean) => void;
+  onViewChanged?: () => void;
+  onRayTracingState?: (state: RayTracingState) => void;
   onStats?: (stats: { calls: number; triangles: number }) => void;
   constructor(private host: HTMLElement) {
     this.renderer = new T.WebGLRenderer({
@@ -124,9 +145,11 @@ export class Viewer {
     this.camera.position.set(100, -120, 100);
     this.controls = this.makeControls();
     this.scene.add(new T.HemisphereLight(0xe9f5ff, 0x64727a, 2.6));
-    const key = new T.DirectionalLight(0xffffff, 3.2);
+    const key = this.keyLight;
     key.position.set(1, -2, 3);
     this.scene.add(key);
+    this.uniformLight.visible = false;
+    this.scene.add(key.target, this.uniformLight);
     const rim = new T.DirectionalLight(0xb3d5ff, 1.5);
     rim.position.set(-2, 1, 1);
     this.scene.add(rim);
@@ -230,10 +253,48 @@ export class Viewer {
       calls: this.renderer.info.render.calls,
       triangles: this.renderer.info.render.triangles,
     });
+    this.onViewChanged?.();
+  }
+  projectPick(pick: Pick) {
+    const matrix = this.partDisplay.get(pick.partId);
+    if (!matrix || this.options.hidden.has(pick.partId))
+      return { x: 0, y: 0, visible: false };
+    this.camera.updateMatrixWorld();
+    const world = new T.Vector3()
+      .fromArray(pick.localPoint)
+      .applyMatrix4(matrix);
+    const clipped =
+      this.options.section && this.sectionPlane.distanceToPoint(world) < 0;
+    const behind =
+      world.clone().applyMatrix4(this.camera.matrixWorldInverse).z >= 0;
+    const point = world.project(this.camera);
+    return {
+      x: (point.x * 0.5 + 0.5) * this.host.clientWidth,
+      y: (-point.y * 0.5 + 0.5) * this.host.clientHeight,
+      visible:
+        !clipped &&
+        !behind &&
+        Number.isFinite(point.x + point.y + point.z) &&
+        Math.abs(point.x) <= 1 &&
+        Math.abs(point.y) <= 1 &&
+        Math.abs(point.z) <= 1,
+    };
+  }
+  focusPick(pick: Pick) {
+    const matrix = this.partDisplay.get(pick.partId);
+    if (!matrix) return;
+    const point = new T.Vector3()
+      .fromArray(pick.localPoint)
+      .applyMatrix4(matrix);
+    this.camera.position.add(point.clone().sub(this.controls.target));
+    this.controls.target.copy(point);
+    this.controls.update();
+    this.invalidate();
   }
   private updateNavigationDetail() {
     const navigating =
       this.options.navigationDetail !== "full" &&
+      !isLineOnlyStyle(this.options.renderStyle) &&
       performance.now() < this.navigationUntil;
     let active = false;
     const pixelHeight = this.renderer.domElement.height;
@@ -366,6 +427,7 @@ export class Viewer {
         cloned.userData.sourceOpacity = m.opacity;
         cloned.userData.sourceTransparent = m.transparent;
         cloned.userData.sourceDepthWrite = m.depthWrite;
+        cloned.userData.sourceIsLine = !!data.lines;
         this.materials.push(cloned);
         return cloned;
       });
@@ -449,6 +511,7 @@ export class Viewer {
       (e.material as T.Material).dispose();
     });
     this.edgeObjects = [];
+    this.edgeSets.clear();
     this.model = undefined;
     this.setOverlay({ points: [] });
   }
@@ -613,6 +676,15 @@ export class Viewer {
       options.theme === "dark" ? 0x182126 : 0xe9eeef,
     );
     this.grid.visible = options.grid;
+    this.lightDirection.copy(
+      updateViewerLighting(
+        this.keyLight,
+        this.uniformLight,
+        this.center,
+        this.radius,
+        options,
+      ),
+    );
     const axis = AXES[options.sectionAxis];
     const min = this.bounds.isEmpty()
         ? 0
@@ -628,6 +700,8 @@ export class Viewer {
       m.transparent = !!m.userData.sourceTransparent || m.opacity < 1;
       m.depthWrite = m.userData.sourceDepthWrite !== false && m.opacity > 0.9;
       m.clippingPlanes = options.section ? [plane] : [];
+      if (!m.userData.sourceIsLine)
+        applySurfaceRenderStyle(m, options.renderStyle);
       if (wasTransparent !== m.transparent || wasClipped !== options.section)
         m.needsUpdate = true;
     }
@@ -693,13 +767,7 @@ export class Viewer {
         this.renderBatches?.syncFromSources();
       }
       this.renderBatches?.syncMaterials();
-      if (options.edges && !this.edgeObjects.length) this.buildEdges();
-      for (const e of this.edgeObjects) {
-        e.visible = options.edges;
-        (e.material as T.LineBasicMaterial).clippingPlanes = options.section
-          ? [plane]
-          : [];
-      }
+      this.applyEdgeStyle();
     }
     this.invalidate();
   }
@@ -717,11 +785,56 @@ export class Viewer {
     }
     return matrix;
   }
-  private buildEdges() {
+  private buildEdges(wireframe = false, dashed = false) {
+    const key = `${wireframe ? "triangles" : "creases"}:${dashed ? "hidden" : "visible"}`;
+    if (this.edgeSets.has(key)) return;
+    const objects: T.LineSegments[] = [];
     for (const mesh of this.batches.values()) {
-      const line = createInstancedEdges(mesh);
+      const line = createInstancedEdges(mesh, 0x536e79, 25, {
+        wireframe,
+        dashed,
+        depthFunc: dashed ? T.GreaterDepth : T.LessEqualDepth,
+      });
+      line.renderOrder = dashed ? 3 : 2;
       this.content.add(line);
       this.edgeObjects.push(line);
+      objects.push(line);
+    }
+    this.edgeSets.set(key, objects);
+  }
+  private applyEdgeStyle() {
+    const style = this.options.renderStyle ?? "shaded";
+    const lineOnly = isLineOnlyStyle(style);
+    const showEdges =
+      lineOnly || style === "shaded-edges" || this.options.edges;
+    const wireframe = style === "wireframe";
+    if (showEdges) this.buildEdges(wireframe);
+    if (lineOnly) this.buildEdges(wireframe, true);
+    const visibleKey = `${wireframe ? "triangles" : "creases"}:visible`;
+    const hiddenKey = `${wireframe ? "triangles" : "creases"}:hidden`;
+    for (const [key, objects] of this.edgeSets) {
+      const active =
+        showEdges && (key === visibleKey || (lineOnly && key === hiddenKey));
+      for (const object of objects) {
+        object.visible = active;
+        const material = object.material as T.LineBasicMaterial;
+        const hidden = key.endsWith(":hidden");
+        material.opacity = lineOnly ? (hidden ? 0.5 : 1) : 0.45;
+        material.color.set(
+          lineOnly
+            ? this.options.theme === "dark"
+              ? hidden
+                ? 0x718791
+                : 0xc8d5da
+              : hidden
+                ? 0x819099
+                : 0x263c46
+            : 0x536e79,
+        );
+        material.clippingPlanes = this.options.section
+          ? [this.sectionPlane]
+          : [];
+      }
     }
   }
   private clearGroup(group: T.Group) {

@@ -86,6 +86,10 @@ if ( batchingMatrix[3][3] == 0.0 ) {
     material.opacity = origin.opacity;
     material.transparent = origin.transparent;
     material.depthWrite = origin.depthWrite;
+    material.colorWrite = origin.colorWrite;
+    material.polygonOffset = origin.polygonOffset;
+    material.polygonOffsetFactor = origin.polygonOffsetFactor;
+    material.polygonOffsetUnits = origin.polygonOffsetUnits;
     material.visible = origin.visible;
     material.clippingPlanes = origin.clippingPlanes;
     material.clipIntersection = origin.clipIntersection;

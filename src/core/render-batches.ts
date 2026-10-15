@@ -544,6 +544,10 @@ export function createRenderBatches(
       material.opacity = original.opacity;
       material.transparent = original.transparent;
       material.depthWrite = original.depthWrite;
+      material.colorWrite = original.colorWrite;
+      material.polygonOffset = original.polygonOffset;
+      material.polygonOffsetFactor = original.polygonOffsetFactor;
+      material.polygonOffsetUnits = original.polygonOffsetUnits;
       material.visible = original.visible;
       material.clippingPlanes = original.clippingPlanes;
       material.clipIntersection = original.clipIntersection;
