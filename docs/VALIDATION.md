@@ -4,7 +4,7 @@ Initial geometry validation: 16 October 2026. Commands run locally with Node 26 
 
 ## Reproducible checks
 
-- `npm test`: analytic unit conversions, signed X/Y/Z distance components, three-point angles and surface routes.
+- `npm test`: 38 checks across five suites covering unit conversions, signed X/Y/Z distance components, three-point angles, surface routes, drawing imports, mesh formats and connected planar mesh features.
 - `npm run test:cad`: generated solids with known dimensions plus the sample STEP assembly; writes `artifacts/cad-validation.json`.
 - `npm run benchmark -- fixtures/sample-assembly.step`: cold kernel startup and import timing, compact assembly and memory statistics; writes `artifacts/step-benchmark.json`. An optional STEP path can replace the fixture.
 
@@ -35,6 +35,6 @@ Six automated cases pass: actual interior picked-point anchors; direct same-tria
 
 The route uses A* with a binary heap on welded triangle edges, plus segments from the actual picked anchors to their containing triangle's vertices. It is explicitly **an approximation**, and can overestimate the continuous geodesic on a coarse mesh. Distinct coordinates are not welded across gaps. Coincident vertices are shared, so geometrically touching surfaces in one mesh are connected. Coordinates are local to the selected geometry; callers must transform the result to the occurrence's world placement. Separate disconnected surfaces return no route.
 
-## Remaining integration evidence
+## Integration evidence
 
-Browser interaction, GPU rendering, supported-format import samples and each native target's build/run results must be recorded by their integration checks. A passing kernel regression alone is not a completed end-to-end platform test.
+See [browser and touch interaction results](E2E_VALIDATION.md), [supported-format fixtures](FORMAT_VALIDATION.md), and [native build/run evidence](PLATFORMS.md). The browser suite opens the actual STEP fixture, measures CAD faces, exercises units, saves/exports measurements, and tests the offline web cache. Platform evidence distinguishes compiled packages from actual runtime checks. A passing kernel regression alone is not an end-to-end platform test.

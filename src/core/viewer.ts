@@ -58,6 +58,7 @@ export class Viewer {
   private radius = 50;
   private raycaster = new T.Raycaster();
   private pointerStart?: { x: number; y: number; time: number };
+  private pendingPick?: Pick;
   private activePointers = new Set<number>();
   private gesture = false;
   private lastHoverKey = "";
@@ -125,6 +126,7 @@ export class Viewer {
     const canvas = this.renderer.domElement;
     canvas.addEventListener("pointerdown", this.down);
     canvas.addEventListener("pointerup", this.up);
+    canvas.addEventListener("click", this.click);
     canvas.addEventListener("pointermove", this.move);
     canvas.addEventListener("pointercancel", this.cancelPointer);
     canvas.addEventListener("pointerleave", this.leave);
@@ -935,6 +937,7 @@ export class Viewer {
     };
   }
   private down = (event: PointerEvent) => {
+    this.pendingPick = undefined;
     this.activePointers.add(event.pointerId);
     if (this.activePointers.size > 1) this.gesture = true;
     this.pointerStart = {
@@ -955,10 +958,17 @@ export class Viewer {
       performance.now() - start.time > 700
     )
       return;
-    const p = this.pick(event);
-    if (p) this.onPick?.(p);
+    this.pendingPick = this.pick(event);
+  };
+  private click = () => {
+    // Open the inspector after the compatibility click targets the canvas.
+    // Opening on pointerup lets touch clicks land on the new sheet beneath them.
+    const pick = this.pendingPick;
+    this.pendingPick = undefined;
+    if (pick) this.onPick?.(pick);
   };
   private cancelPointer = (event: PointerEvent) => {
+    this.pendingPick = undefined;
     this.activePointers.delete(event.pointerId);
     this.pointerStart = undefined;
     if (!this.activePointers.size) this.gesture = false;
