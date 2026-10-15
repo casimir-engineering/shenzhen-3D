@@ -1,0 +1,222 @@
+import * as T from 'three';
+import { Viewer } from '/src/core/viewer.ts';
+import { createDemo } from '/src/core/demo.ts';
+import { createNavigationLods } from '/src/core/navigation-lod.ts';
+
+const host = document.querySelector('#viewer');
+const viewer = new Viewer(host);
+const checks = [];
+const check = (condition, message, details) => {
+  if (!condition) throw new Error(`${message}: ${JSON.stringify(details ?? null)}`);
+  checks.push({ message, ...(details === undefined ? {} : { details }) });
+};
+const raf = () => new Promise(resolve => requestAnimationFrame(resolve));
+const options = change => viewer.applyOptions({ ...viewer.options, ...change });
+const sources = () => [...viewer.batches.values()];
+
+function documentFor(entries) {
+  const geometries = new Map();
+  const parts = [];
+  for (const { id, geometry, materials, transforms = [new T.Matrix4()] } of entries) {
+    geometries.set(id, { id, geometry, materials });
+    transforms.forEach((matrix, i) => parts.push({ id: `${id}-${i}`, name: `${id} ${i}`, geometryId: id, matrix: matrix.toArray(), parentId: 'root', path: ['root', id] }));
+  }
+  return { name: 'Rendering regression fixture', format: 'test', geometries, parts,
+    roots: [{ id: 'root', name: 'Fixture', partIds: parts.map(part => part.id), children: [] }],
+    unit: 'mm', sourceUnit: 'mm', warnings: [], importMs: 0, bytes: 0, is2D: false };
+}
+
+function visualFixture() {
+  const grouped = new T.BoxGeometry(2, 2, 1);
+  grouped.groups.forEach((group, i) => { group.materialIndex = i % 2; });
+  const vertexColored = new T.SphereGeometry(1.1, 24, 16);
+  const position = vertexColored.getAttribute('position');
+  const colors = new Float32Array(position.count * 3);
+  for (let i = 0; i < position.count; i++) {
+    colors[i * 3] = (position.getX(i) + 1.1) / 2.2;
+    colors[i * 3 + 1] = (position.getY(i) + 1.1) / 2.2;
+    colors[i * 3 + 2] = 0.75;
+  }
+  vertexColored.setAttribute('color', new T.BufferAttribute(colors, 3));
+  const texture = new T.DataTexture(new Uint8Array([
+    255, 255, 255, 255, 245, 90, 35, 255,
+    35, 140, 245, 255, 40, 220, 115, 255,
+  ]), 2, 2);
+  texture.colorSpace = T.SRGBColorSpace;
+  texture.magFilter = T.NearestFilter;
+  texture.needsUpdate = true;
+  const translate = (x, y, z = 0) => new T.Matrix4().makeTranslation(x, y, z);
+  return documentFor([
+    { id: 'grouped', geometry: grouped, materials: [new T.MeshBasicMaterial({ color: 0xffbb22 }), new T.MeshBasicMaterial({ color: 0x22bbdd })], transforms: [translate(-3, 2), translate(0, 2)] },
+    { id: 'textured', geometry: new T.BoxGeometry(2, 2, 1), materials: [new T.MeshBasicMaterial({ map: texture })], transforms: [translate(3, 2)] },
+    { id: 'vertex-colored', geometry: vertexColored, materials: [new T.MeshBasicMaterial({ vertexColors: true })], transforms: [translate(-3, -2)] },
+    { id: 'transparent-back', geometry: new T.BoxGeometry(2, 2, 0.2), materials: [new T.MeshBasicMaterial({ color: 0x33ff99, opacity: 0.55, transparent: true })], transforms: [translate(1.5, -2, -0.3)] },
+    { id: 'transparent-front', geometry: new T.BoxGeometry(2, 2, 0.2), materials: [new T.MeshBasicMaterial({ color: 0x8844ff, opacity: 0.6, transparent: true })], transforms: [translate(1.8, -2, 0.3)] },
+  ]);
+}
+
+function pixels() {
+  // Read synchronously inside the same turn as rendering. This intentionally
+  // works with a discarded drawing buffer; it does not change renderer options.
+  viewer.draw();
+  const gl = viewer.renderer.getContext();
+  const data = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4);
+  gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, data);
+  return data;
+}
+
+function difference(a, b, tolerance = 3) {
+  let changed = 0, maximum = 0;
+  for (let i = 0; i < a.length; i += 4) {
+    const delta = Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2]));
+    maximum = Math.max(maximum, delta);
+    if (delta > tolerance) changed++;
+  }
+  return { changed, fraction: changed / (a.length / 4), maximum };
+}
+
+function referencePixels() {
+  const rendered = viewer.renderBatches.objects;
+  const original = sources();
+  for (const object of rendered) viewer.content.remove(object);
+  viewer.content.add(...original);
+  try { return pixels(); }
+  finally {
+    for (const object of original) viewer.content.remove(object);
+    viewer.content.add(...rendered);
+  }
+}
+
+function pickSignatures(doc) {
+  viewer.setSelectionMode('point', 'auto', false);
+  const rect = viewer.renderer.domElement.getBoundingClientRect();
+  return doc.parts.slice(0, 12).map(part => {
+    const geometry = doc.geometries.get(part.geometryId).geometry;
+    const center = geometry.boundingBox.getCenter(new T.Vector3()).add(new T.Vector3(0.13, 0.07, 0));
+    const projected = center.applyMatrix4(new T.Matrix4().fromArray(part.matrix)).project(viewer.camera);
+    const event = new MouseEvent('pointermove', { clientX: rect.left + (projected.x + 1) * rect.width / 2, clientY: rect.top + (1 - projected.y) * rect.height / 2 });
+    const hit = viewer.pick(event);
+    return hit && { partId: hit.partId, triangleIndex: hit.triangleIndex, localPoint: hit.localPoint };
+  });
+}
+
+function samePicks(a, b) {
+  return a.length === b.length && a.every((hit, i) => hit && b[i] && hit.partId === b[i].partId && hit.triangleIndex === b[i].triangleIndex && hit.localPoint.every((v, axis) => Math.abs(v - b[i].localPoint[axis]) < 1e-8));
+}
+
+async function screenshotPixels(blob) {
+  const image = await createImageBitmap(blob);
+  const canvas = document.createElement('canvas');
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const context = canvas.getContext('2d');
+  context.drawImage(image, 0, 0);
+  const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  image.close();
+  // PNG rows face downward; WebGL rows face upward.
+  const flipped = new Uint8Array(data.length);
+  const stride = canvas.width * 4;
+  for (let y = 0; y < canvas.height; y++) flipped.set(data.subarray(y * stride, (y + 1) * stride), (canvas.height - 1 - y) * stride);
+  return flipped;
+}
+
+async function run() {
+  const gl = viewer.renderer.getContext();
+  const debug = gl.getExtension('WEBGL_debug_renderer_info');
+  const info = { renderer: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER), multiDraw: viewer.renderer.extensions.has('WEBGL_multi_draw') };
+  check(gl.getContextAttributes().preserveDrawingBuffer === false, 'Drawing buffer preservation stays disabled');
+  const doc = visualFixture();
+  viewer.setModel(doc);
+  await viewer.whenReady;
+  options({ grid: false, navigationDetail: 'full' });
+  viewer.setProjection(true);
+  viewer.preset('top');
+  viewer.fit();
+  viewer.draw();
+  const indices = new Map([...doc.geometries].map(([id, data]) => [id, { reference: data.geometry.index, values: Array.from(data.geometry.index.array) }]));
+  const beforePicks = pickSignatures(doc);
+  check(beforePicks.every(Boolean), 'Fixture sample rays hit source triangles', beforePicks.map(hit => hit?.triangleIndex));
+  check(viewer.renderBatches.stats.regroupedSourceCount + viewer.renderBatches.stats.batchedSourceCount > 0, 'Render batching/regrouping path is exercised', viewer.renderBatches.stats);
+  const parity = [];
+  for (const state of [{ opacity: 1, section: false }, { opacity: 0.65, section: false }, { opacity: 1, section: true, sectionAxis: 'x', sectionPosition: 0.65 }]) {
+    options(state);
+    const delta = difference(pixels(), referencePixels());
+    check(delta.fraction < 0.002, 'Batched colors, UV texture, alpha and clipping match source rendering', { state, ...delta });
+    parity.push(delta);
+  }
+  options({ opacity: 1, section: false });
+
+  let rebuilds = 0;
+  const rebuild = viewer.pickingIndex.setObjects.bind(viewer.pickingIndex);
+  viewer.pickingIndex.setObjects = (...args) => { rebuilds++; return rebuild(...args); };
+  const versions = sources().map(mesh => mesh.instanceMatrix.version);
+  for (const state of [{}, {}, { theme: 'light' }, { theme: 'dark' }, { grid: true }, { grid: false }, { opacity: 0.65 }, { opacity: 1 }, { section: true }, { sectionPosition: 0.2 }, { sectionPosition: 0.8 }, { section: false }, { edges: true }, { edges: false }, { edges: true }]) options(state);
+  check(rebuilds === 0, 'Display-only option changes never rebuild the picking index', { rebuilds });
+  check(sources().every((mesh, i) => mesh.instanceMatrix.version === versions[i]), 'Display-only option changes never upload instance matrices', { versions });
+  const edges = viewer.edgeObjects.map(edge => ({ edge, position: edge.geometry.getAttribute('position'), matrix: edge.geometry.getAttribute('instanceMatrix') }));
+  const withEdges = pixels();
+  options({ edges: false });
+  check(difference(withEdges, pixels(), 12).changed > 20, 'Instanced edges produce visible rendered pixels');
+  options({ edges: true, hidden: new Set([doc.parts[0].id]), explode: 0.25 });
+  check(rebuilds === 1, 'Hide/explode rebuild the picking index once', { rebuilds });
+  check(edges.every(({ edge, position, matrix }, i) => viewer.edgeObjects[i] === edge && edge.geometry.getAttribute('position') === position && edge.geometry.getAttribute('instanceMatrix') === matrix && matrix === edge.source.instanceMatrix), 'Edges retain borrowed matrices and cached positions across hide/explode');
+  const hiddenExplodedParity = difference(pixels(), referencePixels());
+  check(hiddenExplodedParity.fraction < 0.002, 'Hidden and exploded meshes/edges match source rendering', hiddenExplodedParity);
+  options({ hidden: new Set(), explode: 0, edges: false });
+  check(samePicks(beforePicks, pickSignatures(doc)), 'Original triangle picks survive regrouping, visibility and explode');
+  const screenshot = await screenshotPixels(await viewer.screenshot());
+  check(difference(pixels(), screenshot, 3).fraction < 0.002, 'PNG export captures the full rendered frame without buffer preservation');
+  for (const [id, data] of doc.geometries) check(data.geometry.index === indices.get(id).reference && indices.get(id).values.every((value, i) => data.geometry.index.array[i] === value), 'Source triangle indices remain unchanged', { id });
+
+  const dense = new T.SphereGeometry(1, 64, 32);
+  const lodDoc = documentFor([{ id: 'lod-spheres', geometry: dense, materials: [new T.MeshBasicMaterial({ color: 0x66ccaa })], transforms: Array.from({ length: 129 }, (_, i) => new T.Matrix4().makeTranslation((i % 13) * 2.4, Math.floor(i / 13) * 2.4, 0)) }]);
+  viewer.setModel(lodDoc);
+  options({ navigationDetail: 'auto', edges: false });
+  viewer.setProjection(true);
+  viewer.preset('top');
+  viewer.fit();
+  await viewer.whenReady;
+  const rendered = [...viewer.renderBatches.renderedInstances.values()];
+  // Small fixtures do not cross production's 5M triangle worker threshold.
+  // Prepare the same worker result explicitly to exercise switching cheaply.
+  viewer.navigationLods = await createNavigationLods(rendered);
+  for (const object of rendered) viewer.fullGeometries.set(object, object.geometry);
+  check(viewer.navigationLods.size > 0, 'Real worker produces a navigation LOD');
+  check([...viewer.navigationLods.values()].every(lod => lod.geometry.getAttribute('position') === lod.source.geometry.getAttribute('position')), 'Navigation LOD borrows the original vertex buffer');
+  const sourceIndex = dense.index;
+  const sourceValues = Array.from(sourceIndex.array);
+  viewer.navigationUntil = 0;
+  const fullFrame = pixels();
+  const fullTriangles = viewer.renderer.info.render.triangles;
+  const fullPicks = pickSignatures(lodDoc);
+  viewer.navigationUntil = performance.now() + 10_000;
+  pixels();
+  check(viewer.usingNavigationDetail, 'Navigation activates the prepared render-only LOD');
+  check(viewer.renderer.info.render.triangles < fullTriangles, 'Navigation actually submits fewer triangles', { full: fullTriangles, navigation: viewer.renderer.info.render.triangles });
+  check(samePicks(fullPicks, pickSignatures(lodDoc)), 'LOD rendering leaves original triangle picks unchanged');
+  check(dense.index === sourceIndex && sourceValues.every((value, i) => dense.index.array[i] === value), 'LOD never mutates original geometry indices');
+  const fullExport = await screenshotPixels(await viewer.screenshot());
+  check(!viewer.usingNavigationDetail && difference(fullFrame, fullExport, 3).fraction < 0.002, 'Screenshot restores full-detail geometry during navigation');
+  viewer.controls.dispatchEvent({ type: 'change' });
+  pixels();
+  check(viewer.usingNavigationDetail, 'Actual control changes activate navigation detail');
+  await new Promise(resolve => setTimeout(resolve, 240));
+  await raf();
+  check(!viewer.usingNavigationDetail, 'Full-detail geometry restores automatically after navigation settles');
+  viewer.navigationUntil = performance.now() + 10_000;
+  options({ navigationDetail: 'full' });
+  pixels();
+  check(!viewer.usingNavigationDetail, 'Full-detail override disables navigation LOD');
+
+  // Compile the actual sample-model edge/clipping shader on this GPU too.
+  viewer.setModel(createDemo());
+  options({ navigationDetail: 'full', edges: true, explode: 0.2, section: true, sectionPosition: 0.7 });
+  pixels();
+  check(viewer.renderer.info.render.lines > 0, 'Sample model renders edge primitives with clipping and explode', { lines: viewer.renderer.info.render.lines });
+  await raf();
+  await raf();
+  check(gl.getError() === gl.NO_ERROR, 'Renderer leaves no WebGL error');
+  return { ...info, checks, visualParity: parity, renderBatchStats: viewer.renderBatches.stats };
+}
+
+window.viewerCorrectness = { run, viewer };
