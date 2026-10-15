@@ -1,5 +1,5 @@
 {
-  "date": "2026-10-15T20:08:03.655Z",
+  "date": "2026-10-15T20:17:39.781Z",
   "hardware": {
     "vendor": "apple",
     "architecture": "metal-3",
@@ -767,7 +767,7 @@
       "status": "rendering",
       "samples": 5,
       "target": 32,
-      "progress": 0.0625
+      "progress": 0.03125
     },
     {
       "type": "state",
@@ -795,7 +795,7 @@
       "status": "rendering",
       "samples": 9,
       "target": 32,
-      "progress": 0.09375
+      "progress": 0.125
     },
     {
       "type": "state",
@@ -837,7 +837,7 @@
       "status": "rendering",
       "samples": 15,
       "target": 32,
-      "progress": 0.1875
+      "progress": 0.21875
     },
     {
       "type": "state",
@@ -851,14 +851,14 @@
       "status": "rendering",
       "samples": 17,
       "target": 32,
-      "progress": 0.21875
+      "progress": 0.25
     },
     {
       "type": "state",
       "status": "rendering",
       "samples": 18,
       "target": 32,
-      "progress": 0.21875
+      "progress": 0.25
     },
     {
       "type": "state",
@@ -886,7 +886,7 @@
       "status": "rendering",
       "samples": 22,
       "target": 32,
-      "progress": 0.28125
+      "progress": 0.3125
     },
     {
       "type": "state",
@@ -928,7 +928,7 @@
       "status": "rendering",
       "samples": 28,
       "target": 32,
-      "progress": 0.4375
+      "progress": 0.40625
     },
     {
       "type": "state",
@@ -942,7 +942,7 @@
       "status": "rendering",
       "samples": 30,
       "target": 32,
-      "progress": 0.4375
+      "progress": 0.46875
     },
     {
       "type": "state",
@@ -968,9 +968,27 @@
     "materials": 76,
     "geometryCount": 53
   },
-  "colors": 556,
+  "colors": 543,
   "immutable": true,
   "navigationPauseResume": true,
   "pngReadback": true,
+  "displayParity": {
+    "backgroundDisplayed": [
+      9,
+      16,
+      21,
+      255
+    ],
+    "backgroundExported": [
+      9,
+      16,
+      21,
+      255
+    ],
+    "meanChannelError": 0,
+    "maxChannelError": 0,
+    "channelsOver3": 0,
+    "totalChannels": 576000
+  },
   "shaderErrors": []
 }

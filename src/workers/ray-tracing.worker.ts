@@ -401,8 +401,10 @@ self.onmessage = async ({ data }) => {
         type: T.UnsignedByteType,
         format: T.RGBAFormat,
       });
-      target.texture.colorSpace = T.SRGBColorSpace;
+      // The output pass encodes sRGB; an sRGB GPU attachment would encode twice.
+      target.texture.colorSpace = T.NoColorSpace;
       const previous = renderer.getRenderTarget(),
+        previousOutput = renderer.getOutputRenderTarget(),
         wasPaused = tracer.pause,
         wasLoopPaused = paused,
         snapshotEpoch = epoch;
@@ -410,10 +412,14 @@ self.onmessage = async ({ data }) => {
       clearTimeout(timer);
       try {
         tracer.pause = true;
+        // Treat the export target as display output so Three applies the same
+        // exposure, tone mapping and output color-space transform as the canvas.
+        renderer.setOutputRenderTarget(target);
         renderer.setRenderTarget(target);
         tracer.renderSample();
         // Restore the default target before yielding to camera/pause messages.
         renderer.setRenderTarget(previous);
+        renderer.setOutputRenderTarget(previousOutput);
         tracer.pause = wasPaused;
         const pixels = await renderer.readRenderTargetPixelsAsync(
           target,
@@ -440,6 +446,7 @@ self.onmessage = async ({ data }) => {
       } finally {
         tracer.pause = wasPaused;
         renderer.setRenderTarget(previous);
+        renderer.setOutputRenderTarget(previousOutput);
         target.dispose();
         // A navigation message received during readback owns the newer pause state.
         if (epoch === snapshotEpoch) paused = wasLoopPaused;

@@ -65,7 +65,8 @@ try {
     throw new Error("Ray tracing changed original source geometry/camera");
   fs.mkdirSync("artifacts/perf", { recursive: true });
   await page.screenshot({ path: "artifacts/perf/ray-tracer-page.png" });
-  const result = await page.evaluate(async () => {
+  const visiblePng = await page.locator(".ray-tracing-overlay").screenshot();
+  const result = await page.evaluate(async (visibleBytes) => {
     const blob = await window.rtSnapshot(),
       bitmap = await createImageBitmap(blob),
       canvas = new OffscreenCanvas(bitmap.width, bitmap.height),
@@ -76,12 +77,64 @@ try {
     for (let i = 0; i < pixels.length; i += 4)
       colors.add(`${pixels[i]},${pixels[i + 1]},${pixels[i + 2]}`);
     bitmap.close();
+    const visible = await createImageBitmap(
+      new Blob([new Uint8Array(visibleBytes)], { type: "image/png" }),
+    );
+    const comparison = new OffscreenCanvas(visible.width, visible.height),
+      compareContext = comparison.getContext("2d");
+    compareContext.drawImage(visible, 0, 0);
+    const displayed = compareContext.getImageData(
+      0,
+      0,
+      visible.width,
+      visible.height,
+    ).data;
+    compareContext.clearRect(0, 0, visible.width, visible.height);
+    const exported = await createImageBitmap(blob);
+    compareContext.drawImage(exported, 0, 0, visible.width, visible.height);
+    const reread = compareContext.getImageData(
+      0,
+      0,
+      visible.width,
+      visible.height,
+    ).data;
+    let total = 0,
+      max = 0,
+      bad = 0;
+    for (let i = 0; i < reread.length; i++) {
+      const difference = Math.abs(displayed[i] - reread[i]);
+      total += difference;
+      max = Math.max(max, difference);
+      if (difference > 3) bad++;
+    }
+    visible.close();
+    exported.close();
     return {
+      displayParity: {
+        backgroundDisplayed: Array.from(displayed.slice(0, 4)),
+        backgroundExported: Array.from(reread.slice(0, 4)),
+        meanChannelError: total / reread.length,
+        maxChannelError: max,
+        channelsOver3: bad,
+        totalChannels: reread.length,
+      },
       bytes: Array.from(new Uint8Array(await blob.arrayBuffer())),
       colors: colors.size,
       stats: window.rtStats,
     };
-  });
+  }, Array.from(visiblePng));
+  fs.writeFileSync("artifacts/perf/ray-display-comparison.png", visiblePng);
+  fs.writeFileSync(
+    "artifacts/perf/ray-export-comparison.png",
+    Buffer.from(result.bytes),
+  );
+  console.log(JSON.stringify({ displayParity: result.displayParity }));
+  if (
+    result.displayParity.meanChannelError > 1 ||
+    result.displayParity.channelsOver3 / result.displayParity.totalChannels >
+      0.01
+  )
+    throw new Error("Export colors differ from the displayed trace");
   if (result.colors < 20)
     throw new Error("GPU ray-traced image has insufficient visible variation");
   if (
@@ -124,6 +177,7 @@ try {
         immutable: true,
         navigationPauseResume: true,
         pngReadback: true,
+        displayParity: result.displayParity,
         shaderErrors: errors,
       },
       null,
