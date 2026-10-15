@@ -40,8 +40,9 @@ function createWindow(url = entry) {
 app.whenReady().then(() => {
   app.setAboutPanelOptions({ applicationName: app.name, copyright: '© 2026 INTUITION Robotique & Technologies' });
   protocol.handle('app', createAssetHandler(app.isPackaged ? path.join(app.getAppPath(), 'dist') : path.resolve(__dirname, '../dist')));
-  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-  session.defaultSession.setPermissionCheckHandler(() => false);
+  const mayWriteClipboard = (contents, permission) => permission === 'clipboard-sanitized-write' && contents && trusted(contents.getURL());
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => callback(Boolean(mayWriteClipboard(contents, permission))));
+  session.defaultSession.setPermissionCheckHandler((contents, permission) => Boolean(mayWriteClipboard(contents, permission)));
   session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
     const hotReload = development && details.url.startsWith(`ws://${new URL(development).host}/`);
     const allowed = trusted(details.url) || hotReload || details.url.startsWith(`blob:${allowedOrigin}/`) || details.url.startsWith('data:');

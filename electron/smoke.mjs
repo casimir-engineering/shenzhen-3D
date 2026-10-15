@@ -9,9 +9,11 @@ delete environment.SHENZHEN_3D_DEV_URL;
 const packaged = process.argv.find(argument => argument.startsWith('--executable='))?.slice(13);
 const application = await electron.launch({ ...(packaged ? { executablePath: packaged } : {}), args: packaged ? [] : [path.resolve('electron/main.cjs')], env: environment });
 const errors = [];
+const serviceWorkerRequests = [];
 try {
   const page = await application.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
+  page.on('request', request => { if (new URL(request.url()).pathname === '/sw.js') serviceWorkerRequests.push(request.url()); });
   page.on('console', message => { if (message.type() === 'error') { errors.push(message.text()); console.error(message.text()); } });
   await expect(page.locator('canvas')).toBeVisible();
   await page.bringToFront();
@@ -57,12 +59,24 @@ try {
   await page.getByRole('button', { name: 'Save screenshot', exact: true }).click();
   await expect.poll(async () => fs.stat(png).then(stat => stat.size).catch(() => 0), { timeout: 30_000 }).toBeGreaterThan(1000);
   expect((await fs.readFile(png)).subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+  const csv = path.join(directory, 'measurement.csv');
+  await application.evaluate(({ session }, target) => { session.defaultSession.once('will-download', (_event, item) => item.setSavePath(target)); }, csv);
+  await page.evaluate(() => {
+    const url = URL.createObjectURL(new Blob(['name,distance\nExample,12.5\n'], { type: 'text/csv' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'measurement.csv';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  });
+  await expect.poll(async () => fs.readFile(csv, 'utf8').catch(() => ''), { timeout: 15_000 }).toBe('name,distance\nExample,12.5\n');
   await page.evaluate(() => { window.open('https://example.com/'); });
   expect(await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
   await page.evaluate(() => { location.href = 'https://example.com/'; });
   expect(page.url()).toBe('app://local/');
+  expect(serviceWorkerRequests).toEqual([]);
   expect(errors).toEqual([]);
-  console.log(JSON.stringify({ ...capability, checks: ['sandbox', 'context isolation', 'local protocol', 'native Cmd+O STEP import', 'worker/WASM', 'PNG after delayed native download', 'remote navigation blocked', 'popups blocked', 'no application errors'] }, null, 2));
+  console.log(JSON.stringify({ ...capability, checks: ['sandbox', 'context isolation', 'local protocol', 'native Cmd+O STEP import', 'worker/WASM', 'PNG after delayed native download', 'CSV export', 'no native service worker', 'remote navigation blocked', 'popups blocked', 'no application errors'] }, null, 2));
 } finally {
   await application.close();
   await fs.rm(directory, { recursive: true, force: true });
