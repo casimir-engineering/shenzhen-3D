@@ -45,6 +45,12 @@ function visualFixture() {
   texture.colorSpace = T.SRGBColorSpace;
   texture.magFilter = T.NearestFilter;
   texture.needsUpdate = true;
+  const shaded = new T.MeshStandardMaterial({ color: 0xcdbb8a, roughness: 0.35, metalness: 0.2 });
+  const shadedGeometry = new T.SphereGeometry(1, 32, 24);
+  const shadedTransform = new T.Matrix4().compose(new T.Vector3(3, -5, 0), new T.Quaternion().setFromEuler(new T.Euler(0.3, 0.5, 0.2)), new T.Vector3(1.3, 0.6, 0.8));
+  const uniqueGrouped = new T.BoxGeometry(2, 2, 1);
+  uniqueGrouped.groups.forEach((group, i) => { group.materialIndex = i % 2; });
+  const uniquePalette = [new T.MeshBasicMaterial({ color: 0xe77599 }), new T.MeshBasicMaterial({ color: 0x8888ff })];
   const translate = (x, y, z = 0) => new T.Matrix4().makeTranslation(x, y, z);
   return documentFor([
     { id: 'grouped', geometry: grouped, materials: [new T.MeshBasicMaterial({ color: 0xffbb22 }), new T.MeshBasicMaterial({ color: 0x22bbdd })], transforms: [translate(-3, 2), translate(0, 2)] },
@@ -52,6 +58,10 @@ function visualFixture() {
     { id: 'vertex-colored', geometry: vertexColored, materials: [new T.MeshBasicMaterial({ vertexColors: true })], transforms: [translate(-3, -2)] },
     { id: 'transparent-back', geometry: new T.BoxGeometry(2, 2, 0.2), materials: [new T.MeshBasicMaterial({ color: 0x33ff99, opacity: 0.55, transparent: true })], transforms: [translate(1.5, -2, -0.3)] },
     { id: 'transparent-front', geometry: new T.BoxGeometry(2, 2, 0.2), materials: [new T.MeshBasicMaterial({ color: 0x8844ff, opacity: 0.6, transparent: true })], transforms: [translate(1.8, -2, 0.3)] },
+    { id: 'shaded-normal-a', geometry: shadedGeometry, materials: [shaded], transforms: [translate(0, -5)] },
+    { id: 'shaded-normal-b', geometry: shadedGeometry.clone(), materials: [shaded], transforms: [shadedTransform] },
+    { id: 'unique-grouped-a', geometry: uniqueGrouped, materials: uniquePalette, transforms: [translate(-3, -8)] },
+    { id: 'unique-grouped-b', geometry: uniqueGrouped.clone(), materials: uniquePalette, transforms: [translate(0, -8)] },
   ]);
 }
 
@@ -137,11 +147,15 @@ async function run() {
   const beforePicks = pickSignatures(doc);
   check(beforePicks.every(Boolean), 'Fixture sample rays hit source triangles', beforePicks.map(hit => hit?.triangleIndex));
   check(viewer.renderBatches.stats.regroupedSourceCount + viewer.renderBatches.stats.batchedSourceCount > 0, 'Render batching/regrouping path is exercised', viewer.renderBatches.stats);
+  const merged = viewer.renderBatches.objects.filter(object => object.geometry?.hasAttribute('mergedPartId'));
+  const mergedIds = merged.map(object => object.geometry.getAttribute('mergedPartId'));
+  check(merged.length > 0 && merged.every(object => object.visible), 'Opaque unique-geometry chunks use the merged shader path', { chunks: merged.length });
   const parity = [];
   for (const state of [{ opacity: 1, section: false }, { opacity: 0.65, section: false }, { opacity: 1, section: true, sectionAxis: 'x', sectionPosition: 0.65 }]) {
     options(state);
+    check(merged.every(object => object.visible === (state.opacity === 1)), 'Dynamic opacity selects opaque merged or sorted transparency fallback', { opacity: state.opacity });
     const delta = difference(pixels(), referencePixels());
-    check(delta.fraction < 0.002, 'Batched colors, UV texture, alpha and clipping match source rendering', { state, ...delta });
+    check(delta.fraction < 0.002, 'Merged material groups, colors, UV texture, normals, alpha and clipping match source rendering', { state, ...delta });
     parity.push(delta);
   }
   options({ opacity: 1, section: false });
@@ -160,6 +174,7 @@ async function run() {
   options({ edges: true, hidden: new Set([doc.parts[0].id]), explode: 0.25 });
   check(rebuilds === 1, 'Hide/explode rebuild the picking index once', { rebuilds });
   check(edges.every(({ edge, position, matrix }, i) => viewer.edgeObjects[i] === edge && edge.geometry.getAttribute('position') === position && edge.geometry.getAttribute('instanceMatrix') === matrix && matrix === edge.source.instanceMatrix), 'Edges retain borrowed matrices and cached positions across hide/explode');
+  check(merged.every((object, i) => object.geometry.getAttribute('mergedPartId') === mergedIds[i] && mergedIds[i].version === 0), 'Hide/explode and display updates retain immutable merged vertex identifiers');
   const hiddenExplodedParity = difference(pixels(), referencePixels());
   check(hiddenExplodedParity.fraction < 0.002, 'Hidden and exploded meshes/edges match source rendering', hiddenExplodedParity);
   options({ hidden: new Set(), explode: 0, edges: false });
@@ -208,9 +223,53 @@ async function run() {
   pixels();
   check(!viewer.usingNavigationDetail, 'Full-detail override disables navigation LOD');
 
+  // Off-axis Euclidean distance must not substitute for camera-space depth.
+  // Inject only the conservative bounds/error metadata, then exercise the real
+  // Viewer decision without rendering an offscreen half-million-triangle model.
+  const [original, lodRendered] = [...viewer.renderBatches.renderedInstances][0];
+  const lod = viewer.navigationLods.get(lodRendered);
+  const originalBounds = original.boundingSphere;
+  const originalError = lod.error;
+  const originalScale = original.userData.maxInstanceScale;
+  original.userData.maxInstanceScale = 1;
+  lod.error = 0.01;
+  viewer.setProjection(false);
+  viewer.camera.position.set(0, 0, 0);
+  viewer.camera.up.set(0, 1, 0);
+  viewer.camera.lookAt(0, 0, -1);
+  options({ navigationDetail: 'auto' });
+  viewer.navigationUntil = performance.now() + 10_000;
+  original.boundingSphere = new T.Sphere(new T.Vector3(1000, 0, -0.2), 0.1);
+  viewer.updateNavigationDetail();
+  check(!viewer.usingNavigationDetail, 'Shallow-depth off-axis bounds conservatively reject navigation LOD');
+  original.boundingSphere = new T.Sphere(new T.Vector3(0, 0, -1000), 0.1);
+  viewer.updateNavigationDetail();
+  check(viewer.usingNavigationDetail, 'Distant camera-space bounds permit the same navigation error');
+  original.boundingSphere = originalBounds;
+  original.userData.maxInstanceScale = originalScale;
+  lod.error = originalError;
+
+  const boundsGeometry = new T.BoxGeometry(2, 2, 2);
+  const shear = new T.Matrix4().set(1, 3, 0, 1000, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+  const boundsDoc = documentFor([{ id: 'bounds-box', geometry: boundsGeometry, materials: [new T.MeshBasicMaterial()], transforms: [shear, new T.Matrix4().makeTranslation(-1000, 0, 0)] }]);
+  viewer.setModel(boundsDoc);
+  options({ hidden: new Set(['bounds-box-1']), navigationDetail: 'full', edges: false });
+  const boundsSource = viewer.batches.get('bounds-box');
+  const boundsPosition = boundsGeometry.getAttribute('position');
+  const point = new T.Vector3();
+  let encloses = true;
+  for (let i = 0; i < boundsPosition.count; i++) {
+    point.fromBufferAttribute(boundsPosition, i).applyMatrix4(shear);
+    encloses &&= boundsSource.boundingSphere.distanceToPoint(point) <= 1e-8;
+  }
+  check(encloses, 'Conservative sheared occurrence bounds enclose every transformed corner');
+  check(boundsSource.boundingSphere.center.x > 990 && boundsSource.boundingSphere.radius < 10, 'Hidden distant occurrences do not expand the visible navigation bounds', { center: boundsSource.boundingSphere.center.toArray(), radius: boundsSource.boundingSphere.radius });
+  const directionalStretch = new T.Vector3(Math.SQRT1_2, Math.SQRT1_2, 0).applyMatrix3(new T.Matrix3().setFromMatrix4(shear)).length();
+  check(boundsSource.userData.maxInstanceScale >= directionalStretch, 'Shear error scale bounds actual directional stretch', { bound: boundsSource.userData.maxInstanceScale, directionalStretch });
+
   // Compile the actual sample-model edge/clipping shader on this GPU too.
   viewer.setModel(createDemo());
-  options({ navigationDetail: 'full', edges: true, explode: 0.2, section: true, sectionPosition: 0.7 });
+  options({ hidden: new Set(), navigationDetail: 'full', edges: true, explode: 0.2, section: true, sectionPosition: 0.7 });
   pixels();
   check(viewer.renderer.info.render.lines > 0, 'Sample model renders edge primitives with clipping and explode', { lines: viewer.renderer.info.render.lines });
   await raf();
