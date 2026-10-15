@@ -23,6 +23,7 @@ try {
   expect(preferences.sandbox).toBe(true);
   expect(preferences.contextIsolation).toBe(true);
   expect(preferences.nodeIntegration).toBe(false);
+  const runtime = await application.evaluate(({ app }) => ({ packaged: app.isPackaged, applicationVersion: app.getVersion(), versions: process.versions }));
   expect(page.url()).toBe('app://local/');
   expect(await page.evaluate(() => typeof window.require)).toBe('undefined');
   const capability = await page.evaluate(async () => {
@@ -76,7 +77,13 @@ try {
   expect(page.url()).toBe('app://local/');
   expect(serviceWorkerRequests).toEqual([]);
   expect(errors).toEqual([]);
-  console.log(JSON.stringify({ ...capability, checks: ['sandbox', 'context isolation', 'local protocol', 'native Cmd+O STEP import', 'worker/WASM', 'PNG after delayed native download', 'CSV export', 'no native service worker', 'remote navigation blocked', 'popups blocked', 'no application errors'] }, null, 2));
+  const report = { ...runtime, ...capability, checks: ['sandbox', 'context isolation', 'local protocol', 'native Cmd+O STEP import', 'worker/WASM', 'PNG after delayed native download', 'CSV export', 'no native service worker', 'remote navigation blocked', 'popups blocked', 'no application errors'] };
+  const output = process.argv.find(argument => argument.startsWith('--report='))?.slice(9);
+  if (output) {
+    await fs.writeFile(output, JSON.stringify(report, null, 2));
+    await page.screenshot({ path: output.replace(/\.json$/, '.png') });
+  }
+  console.log(JSON.stringify(report, null, 2));
 } finally {
   await application.close();
   await fs.rm(directory, { recursive: true, force: true });
