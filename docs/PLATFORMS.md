@@ -60,6 +60,7 @@ An unsigned archive proves compilation but cannot be installed on an iPhone. For
 ## Verification record
 
 - Desktop Rust native shell: `cargo check` passed on Apple Silicon macOS.
+- Intel macOS native shell: `cargo check --target x86_64-apple-darwin` passed.
 - Android native shell: `cargo check --target aarch64-linux-android` passed.
 - iOS native shell: `cargo check --target aarch64-apple-ios` passed. Optional desktop logging is excluded on mobile to avoid an upstream local-time dependency incompatibility on iOS.
 - Cross-platform build and runtime results are recorded in the project validation report and CI logs. A configured packaging job alone is not evidence of a successful build or a device runtime test.
