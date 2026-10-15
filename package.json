@@ -1,15 +1,26 @@
 {
-  "name": "3d-viewer",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "shenzhen-3d",
+  "version": "0.1.0",
+  "description": "Shenzhen 3D — local-first CAD and mesh viewer",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:cad": "node scripts/test-cad.mjs",
+    "benchmark": "node scripts/benchmark.mjs",
+    "tauri": "tauri",
+    "build:mac": "tauri build --bundles app,dmg",
+    "build:android": "tauri android build --apk",
+    "build:ios": "tauri ios build",
+    "prepare:assets": "node scripts/prepare-assets.mjs",
+    "postinstall": "node scripts/prepare-assets.mjs"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
-  "type": "commonjs",
+  "license": "UNLICENSED",
+  "type": "module",
   "dependencies": {
     "@mlightcad/libredwg-web": "^0.8.0",
     "@tauri-apps/api": "^2.12.4",
@@ -35,5 +46,6 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
     "vitest": "^5.0.5"
-  }
+  },
+  "private": true
 }
