@@ -36,21 +36,30 @@ async function geometryLocations(page: Page) {
   await page.getByTitle('Top · 2', {exact: true}).click();
   await page.getByRole('button', {name: 'Fit model', exact: true}).click();
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  const locations = await page.locator('canvas').evaluate(canvas => {
-    const gl = (canvas as HTMLCanvasElement).getContext('webgl2')!;
-    const width = gl.drawingBufferWidth, height = gl.drawingBufferHeight;
-    const pixels = new Uint8Array(width * height * 4);
-    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  // Capture the composited canvas: its WebGL drawing buffer is discarded after
+  // presenting a frame when preserveDrawingBuffer is false.
+  const screenshot = await page.locator('canvas').screenshot();
+  const locations = await page.locator('canvas').evaluate(async (canvas, png) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${png}`;
+    await image.decode();
+    const width = image.naturalWidth, height = image.naturalHeight;
+    const sampler = document.createElement('canvas');
+    sampler.width = width;
+    sampler.height = height;
+    const context = sampler.getContext('2d')!;
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, width, height).data;
     const rect = canvas.getBoundingClientRect();
     const points: {x: number; y: number}[] = [];
     // Bright model surfaces are well above both the graphite background and grid.
     for (let y = 65; y < rect.height - 85; y += 3) for (let x = 30; x < rect.width - 48; x += 3) {
-      const px = Math.floor(x / rect.width * width), py = height - 1 - Math.floor(y / rect.height * height);
+      const px = Math.floor(x / rect.width * width), py = Math.floor(y / rect.height * height);
       const i = (py * width + px) * 4;
       if (pixels[i] > 75 && pixels[i + 1] > 75 && pixels[i + 2] > 75) points.push({x: rect.x + x, y: rect.y + y});
     }
     return points;
-  });
+  }, screenshot.toString('base64'));
   expect(locations.length, 'Model has visible rendered surfaces').toBeGreaterThan(10);
   const picks: {x: number; y: number}[] = [];
   // Pick separated regions along the longest screen axis, not neighbouring triangles.
@@ -62,6 +71,8 @@ async function geometryLocations(page: Page) {
     for (let offset = 0; offset < 100; offset++) {
       const p = locations[Math.min(middle + offset, locations.length - 1)];
       await page.mouse.move(p.x, p.y);
+      // Hover picking runs once per animation frame; let its status commit.
+      await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
       if ((await page.locator('.status-main').textContent())?.includes(' · ')) {picks.push(p); break;}
     }
   }
@@ -190,6 +201,8 @@ test('desktop section, orthographic projection, display tools and PNG export', a
   await page.getByTitle('Top · 2', {exact: true}).click();
   await page.getByRole('button', {name: 'Show edges', exact: true}).click();
   await expect(page.getByRole('button', {name: 'Show edges', exact: true})).toHaveAttribute('aria-pressed', 'true');
+  await page.getByLabel('Explode assembly', {exact: true}).fill('0.25');
+  await expect(page.getByLabel('Explode assembly', {exact: true})).toHaveValue('0.25');
   await page.getByRole('button', {name: 'Ground grid', exact: true}).click();
   await expect(page.getByRole('button', {name: 'Ground grid', exact: true})).toHaveAttribute('aria-pressed', 'false');
   await page.getByRole('button', {name: 'Section plane', exact: true}).click();
@@ -197,6 +210,36 @@ test('desktop section, orthographic projection, display tools and PNG export', a
   await page.getByLabel('Section axis', {exact: true}).selectOption('x');
   await page.getByLabel('Section position', {exact: true}).fill('0.35');
   await expect(page.getByLabel('Section position', {exact: true})).toHaveValue('0.35');
+  // Verify the instanced edge shader actually draws after explode + clipping,
+  // rather than merely checking the toolbar toggle and console errors.
+  await page.getByRole('button', {name: 'Show edges', exact: true}).click();
+  const withoutEdges = await page.locator('canvas').screenshot();
+  await page.getByRole('button', {name: 'Show edges', exact: true}).click();
+  const withEdges = await page.locator('canvas').screenshot();
+  const edgePixels = await page.evaluate(async ({before, after}) => {
+    const readPixels = async (png: string) => {
+      const image = new Image();
+      image.src = `data:image/png;base64,${png}`;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext('2d')!;
+      context.drawImage(image, 0, 0);
+      return context.getImageData(0, 0, canvas.width, canvas.height);
+    };
+    const a = await readPixels(before), b = await readPixels(after);
+    let changed = 0, visible = 0;
+    // Ignore controls along the canvas boundary and compare rendered content.
+    for (let y = 80; y < a.height - 80; y++) for (let x = 20; x < a.width - 20; x++) {
+      const i = (y * a.width + x) * 4;
+      if (Math.max(Math.abs(a.data[i] - b.data[i]), Math.abs(a.data[i + 1] - b.data[i + 1]), Math.abs(a.data[i + 2] - b.data[i + 2])) > 12) changed++;
+      if (b.data[i] > 75 && b.data[i + 1] > 75 && b.data[i + 2] > 75) visible++;
+    }
+    return {changed, visible};
+  }, {before: withoutEdges.toString('base64'), after: withEdges.toString('base64')});
+  expect(edgePixels.visible, 'Exploded section still renders model surfaces').toBeGreaterThan(20);
+  expect(edgePixels.changed, 'Instanced edges add visible pixels to the exploded section').toBeGreaterThan(20);
   const pngWait = page.waitForEvent('download');
   await page.getByRole('button', {name: 'Save screenshot', exact: true}).click();
   const screenshot = await pngWait;
