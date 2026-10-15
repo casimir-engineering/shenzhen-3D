@@ -48,3 +48,10 @@ Spacing: 4 px base, 12–16 px panel padding; compact desktop controls, 44 px to
 3. Display: shaded, shaded edges, wireframe and dashed hidden lines; adjustable key direction/intensity and uniform fill. Preserve original measurement geometry and optimized default rendering. Verify pixels, clipping, hide/explode and disposal.
 4. Progressive GPU ray tracing: capability-gated backend with asynchronous preparation, explicit progress and memory limits, fast raster navigation and recovery. Verify actual traced output rather than relabeling raster shading.
 5. Package the verified update across all targets and mirror private commits/releases. Preserve the completed 0.1.1 performance checkpoint and its measured evidence.
+
+
+## Review/rendering delivery complete
+
+Private `preview-0.1.2` packages are published in both repositories from frozen source `44761a8`, preserving the earlier previews. The update includes portable annotated files, anchored notes, four raster styles, lighting controls and genuine progressive WebGPU tracing. All 16 assets in each release were checked against their local SHA-256; Windows/Linux CI and all local packages use the same 79-file frontend.
+
+Validation: 115 unit tests, 12 exact-CAD checks, 18 production browser workflows (two expected viewport skips), 19 packaged Electron checks and all nine CI jobs in both repositories. Hardware raster regression retained approximately 120 fps for the two largest M5 Max workloads. Native runtime coverage and unverified iOS note-saving/touch-gesture behavior are explicit in [platform evidence](PLATFORMS.md). See [delivery](DELIVERY.md), [review files](REVIEW.md) and [rendering limits](RENDERING.md).

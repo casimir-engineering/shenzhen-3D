@@ -109,3 +109,18 @@ All nine platform jobs passed in both repositories at `0e030c1`; the web job now
 The signed lightweight Mac 0.1.1 app imported the sample STEP in 2.54 seconds and saved a PNG. The signed Chromium Mac package passed 11 runtime checks, including STEP/WASM, native Open, delayed PNG and CSV downloads, sandbox isolation and no native service worker. Its actual renderer sustained approximately 120 fps in the specified large-model stress cases; see [the hardware report](PERFORMANCE.md). Mac packages are not notarized.
 
 The development-signed Android ARM64 0.1.1 APK installed and launched on an API 35 emulator; welcome/grid rendering, crash-log checks and 16 KB ZIP/ELF alignment passed. The iOS simulator and registered-device packages were rebuilt and their versions inspected; the IPA passed strict development-signature verification. Interactive iOS testing remains the earlier 0.1.0 evidence. No physical mobile device was tested. Windows/Linux startup checks passed in CI; full interactive native coverage remains outstanding.
+
+
+### Review and rendering preview 0.1.2
+
+Source `44761a8` passed all nine CI jobs in [Casimir](https://github.com/casimir-engineering/shenzhen-3D/actions/runs/38800931430). The release adds portable commented projects, new render styles/lights and optional progressive WebGPU tracing. The frozen frontend has 79 files, `index.html` SHA-256 `5b2e883a9034762dff05e565a6176259cf1540892adc14636d0b98cf4f718350` and `assets/index-dpyKHpus.js`. CI web assets match byte for byte. Every Windows/Linux binary contains all 79 asset keys, including the tracing worker; versions and startup smoke tests passed.
+
+Local verification passed 115 unit tests, 12 CAD checks and 18 production desktop/mobile browser workflows, with two expected viewport skips. Genuine GPU tracing and display/export pixel parity passed on hardware. The signed Chromium Mac app passed 19 packaged checks, including native `.sz3d` save/open, CAD-face note/exact measurement restoration, tracing and PNG export. All 79 ASAR frontend assets match the freeze. Mac packages remain signed but not notarized.
+
+The signed lightweight Mac app imported the STEP assembly in 3.02 seconds, rendered hidden lines, saved PNG and saved/reopened a portable project. Its native smoke did not add annotations; the full commented-project workflow was tested in Electron and both browser viewports. Rendering settings stayed unchanged in that same session; `.sz3d` does not persist render/light settings.
+
+The Android ARM64 API 35 emulator installed and launched 0.1.2, rendered welcome/grid and showed no AndroidRuntime crash. ZIP and native ELF 16 KB alignment checks passed. Android native touch/STEP/review workflows remain untested.
+
+The iOS 26.5 simulator installed/launched 0.1.2, rendered the four-part demo and accepted a note's model point and text. Native Files export produced an integrity-checked demo `.sz3d` archive without saved notes. End-to-end annotation saving and native touch scrolling remain unverified: the automation could not reveal the Save button below the panel fold with its simulator gestures. This is not established as a product scrolling failure. A separate real touch-event sequence in mobile Chromium scrolled the review panel and exposed Save successfully. The earlier 0.1.0 simulator STEP/measurement evidence remains historical.
+
+The 0.1.2 device IPA passed strict development-signature verification for the team's 19 registered devices; the profile expires 15 October 2027. The simulator archive preserves executable modes. No physical iOS/Android device or Intel Mac runtime was tested. Full Windows/Linux interaction coverage remains outstanding. Per-package evidence and hashes accompany the private release in `build-manifest.json`.

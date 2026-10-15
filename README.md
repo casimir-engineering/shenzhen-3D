@@ -2,7 +2,7 @@
 
 A local-first CAD, mesh and drawing viewer for inspecting assemblies and taking engineering measurements. One React/Three.js interface runs in the browser/PWA, a Chromium desktop performance shell, and lightweight Tauri desktop/mobile shells. Model files are processed on the device.
 
-[Download the private preview](https://github.com/casimir-engineering/shenzhen-3D/releases/tag/preview-0.1.1) · [Delivery and validation](docs/DELIVERY.md)
+[Download the private preview](https://github.com/casimir-engineering/shenzhen-3D/releases/tag/preview-0.1.2) · [Delivery and validation](docs/DELIVERY.md)
 
 ![Shenzhen 3D workbench measuring an 80 mm bracket](docs/images/workbench.png)
 
@@ -37,6 +37,6 @@ See [building and testing](docs/BUILDING.md), [platform requirements and current
 
 Private repositories: [Casimir Engineering](https://github.com/casimir-engineering/shenzhen-3D).
 
-The sample STEP assembly imports with shared geometries for its repeated parts. Local native macOS import measured 2.76 seconds; device performance varies. The screenshot below shows an actual point measurement on that model.
+The sample STEP assembly imports with shared geometries for its repeated parts. Local native macOS 0.1.2 import measured 3.02 seconds; device performance varies. The screenshot below shows an actual point measurement on that model.
 
 ![Sample assembly with a 54.683 mm point measurement](docs/images/sample-assembly.png)
