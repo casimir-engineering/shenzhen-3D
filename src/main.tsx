@@ -5,6 +5,7 @@ createRoot(document.getElementById("root")!).render(<App />);
 
 if (
   import.meta.env.PROD &&
+  /^https?:$/.test(window.location.protocol) &&
   "serviceWorker" in navigator &&
   !(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
 ) {
