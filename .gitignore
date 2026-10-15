@@ -1,0 +1,12 @@
+node_modules/
+dist/
+target/
+src-tauri/target/
+test-results/
+playwright-report/
+.DS_Store
+*.log
+.env*
+! .env.example
+artifacts/
+public/wasm/
