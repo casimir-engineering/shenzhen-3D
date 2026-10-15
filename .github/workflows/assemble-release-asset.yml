@@ -1,0 +1,44 @@
+name: Assemble release asset
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing private release tag
+        required: true
+        type: string
+      asset_name:
+        description: Asset basename whose numbered .part-* files are uploaded
+        required: true
+        type: string
+      sha256:
+        description: Expected SHA-256 of the assembled asset
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  assemble:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      ASSET_NAME: ${{ inputs.asset_name }}
+      EXPECTED_SHA: ${{ inputs.sha256 }}
+    steps:
+      - name: Download, verify and publish assembled asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+          [[ "$ASSET_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{64}$ ]]
+          mkdir parts
+          gh release download "$RELEASE_TAG" --pattern "$ASSET_NAME.part-*" --dir parts
+          LC_ALL=C cat parts/"$ASSET_NAME".part-* > "$ASSET_NAME"
+          printf '%s  %s\n' "$EXPECTED_SHA" "$ASSET_NAME" | sha256sum --check
+          gh release upload "$RELEASE_TAG" "$ASSET_NAME" --clobber
+          for part in parts/"$ASSET_NAME".part-*; do
+            gh release delete-asset "$RELEASE_TAG" "${part##*/}" --yes
+          done
