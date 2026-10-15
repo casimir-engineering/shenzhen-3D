@@ -106,7 +106,23 @@ jobs:
             src-tauri/target/**/release/bundle/**/*.rpm
             src-tauri/target/**/release/bundle/**/*.AppImage
   android:
+    # Each ABI has its own runner: retaining debug + release static archives for
+    # all four ABIs exhausted the hosted runner's disk during release linking.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64
+            rust_target: aarch64-linux-android
+          - target: armv7
+            rust_target: armv7-linux-androideabi
+          - target: x86_64
+            rust_target: x86_64-linux-android
+          - target: i686
+            rust_target: i686-linux-android
     runs-on: ubuntu-24.04
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -124,18 +140,21 @@ jobs:
       - run: echo "NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+          targets: ${{ matrix.rust_target }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          key: android-${{ matrix.target }}
       - run: npm ci
       - name: Build installable development APK
-        run: node scripts/platform-build.mjs android --debug --apk --target aarch64 x86_64 --ci
+        run: node scripts/platform-build.mjs android --debug --apk --target ${{ matrix.target }} --ci
       - name: Build release APK and Play bundle
-        run: node scripts/platform-build.mjs android --apk --aab --ci
+        run: node scripts/platform-build.mjs android --apk --aab --target ${{ matrix.target }} --ci
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: shenzhen-3d-android
+          name: shenzhen-3d-android-${{ matrix.target }}
+          if-no-files-found: warn
           path: |
             src-tauri/gen/android/app/build/outputs/apk/**/*.apk
             src-tauri/gen/android/app/build/outputs/bundle/**/*.aab
