@@ -53,6 +53,21 @@ describe('mesh format import', () => {
       const data = [...doc.geometries.values()][0];
       const bounds = new T.Box3().setFromBufferAttribute(data.geometry.getAttribute('position')).applyMatrix4(new T.Matrix4().fromArray(doc.parts[0].matrix));
       expect(bounds.getSize(new T.Vector3()).x * conversion(doc.unit, 'mm')).toBeCloseTo(1000);
+      expect(bounds.min.toArray().map(value => value * conversion(doc.unit, 'mm'))).toEqual([2000, 3000, 4000]);
+    } finally { disposeDocument(doc); }
+  });
+
+  it('scales a collapsed FBX root group placement together with its children', async () => {
+    const root = '\tModel: 4, "Model::Root", "Null" {\n\t\tVersion: 232\n\t\tProperties70:  {\n\t\t\tP: "Lcl Translation", "Lcl Translation", "", "A",5,0,0\n\t\t}\n\t}\n';
+    const text = (await fixture('panel.fbx').text())
+      .replace('"UnitScaleFactor", "double", "Number", "",1', '"UnitScaleFactor", "double", "Number", "",100')
+      .replace('\n}\nConnections:', '\n' + root + '}\nConnections:')
+      .replace('\tC: "OO",2,0', '\tC: "OO",2,4\n\tC: "OO",4,0');
+    const doc = await importFiles([new File([text], 'root-group.fbx')], 'balanced', () => {});
+    try {
+      const matrix = new T.Matrix4().fromArray(doc.parts[0].matrix);
+      const position = new T.Vector3().setFromMatrixPosition(matrix).multiplyScalar(conversion(doc.unit, 'mm'));
+      expect(position.toArray()).toEqual([7000, 3000, 4000]);
     } finally { disposeDocument(doc); }
   });
 

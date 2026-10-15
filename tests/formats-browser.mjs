@@ -13,7 +13,10 @@ try {
   for (let i = 0; i < 100; i++) { try { await fetch(origin); ready = true; break; } catch { await delay(100); } }
   assert(ready, 'Vite server became available');
   browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage(); await page.goto(origin);
+  const page = await browser.newPage();
+  // Keep the importer check independent of the application shell and Vite HMR.
+  await page.route(origin + '/__formats-test__', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Format import regression</title>' }));
+  await page.goto(origin + '/__formats-test__');
   const result = await page.evaluate(async () => {
     const { importFiles, disposeDocument } = await import('/src/core/importers.ts');
     const T = await import('/node_modules/three/build/three.module.js');

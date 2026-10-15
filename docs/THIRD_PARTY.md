@@ -4,7 +4,7 @@ Inventory date: 16 October 2026. Run `node scripts/license-audit.mjs` after `npm
 
 | Component | Local evidence | Role |
 | --- | --- | --- |
-| Vendored `occt-js` | `vendor/occt/REVISION`, `vendor/occt/LICENSE` | Active CAD WASM bridge, pinned revision `ad8ffb6007eb3fd25179232f291b626d6e78a195`. Bridge notice declares LGPL-2.1; underlying OCCT 7.9.3 uses LGPL-2.1 with an additional exception. |
+| Vendored `occt-js` | `vendor/occt/REVISION`, `vendor/occt/LICENSE` | Active CAD WASM bridge, [pinned source revision `ad8ffb6007eb3fd25179232f291b626d6e78a195`](https://github.com/tx-code/occt-js/tree/ad8ffb6007eb3fd25179232f291b626d6e78a195). Bridge notice declares LGPL-2.1; underlying OCCT 7.9.3 uses LGPL-2.1 with an additional exception. |
 | `@tx-code/occt-js` | Installed package metadata declares LGPL-2.1 | npm dependency; the application imports the pinned vendor files instead. |
 | `@mlightcad/libredwg-web` 0.8.0 | Installed package metadata declares GPL-3.0 | DWG reader and deployed WASM runtime. [Upstream repository](https://github.com/mlightcad/libredwg-web). |
 | Three.js | Installed MIT license | Scene rendering and mesh/XML loaders. |
