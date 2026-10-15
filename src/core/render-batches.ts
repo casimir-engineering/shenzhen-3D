@@ -8,8 +8,14 @@ import {
   MeshBasicMaterial,
   MeshPhongMaterial,
   MeshStandardMaterial,
+  Mesh,
 } from "three";
 import type { TypedArrayConstructor } from "three";
+import {
+  createGpuMergedMesh,
+  type GpuMergedMesh,
+  type MergedPartSpan,
+} from "./gpu-merged-mesh";
 
 export interface RenderBatchOptions {
   multiDraw: boolean;
@@ -18,6 +24,7 @@ export interface RenderBatchOptions {
   maxVerticesPerBatch?: number;
   maxIndicesPerBatch?: number;
   maxInstancesPerBatch?: number;
+  mergeUniqueGeometries?: boolean;
 }
 
 type Range = { start: number; count: number };
@@ -31,6 +38,7 @@ interface Bucket {
   material: Material;
   pieces: Map<string, Piece>;
   tails: Map<string, Piece>;
+  merged: boolean;
 }
 interface InstanceLink {
   batch: BatchedMesh;
@@ -185,7 +193,14 @@ export function createRenderBatches(
   const maxIndices = options.maxIndicesPerBatch ?? 3_000_000;
   const maxInstances = options.maxInstancesPerBatch ?? 65_536;
   const preserveAbove = options.preserveInstancingAbove ?? 128;
-  const objects: (BatchedMesh | InstancedMesh)[] = [];
+  const objects: Mesh[] = [];
+  const mergedMeshes = new Map<BatchedMesh, GpuMergedMesh>();
+  const geometryOccurrences = new Map<BufferGeometry, number>();
+  for (const source of sources)
+    geometryOccurrences.set(
+      source.geometry,
+      (geometryOccurrences.get(source.geometry) ?? 0) + 1,
+    );
   const batchedSources = new Set<InstancedMesh>();
   const buckets = new Map<string, Bucket>();
   const materialKeys = new WeakMap<Material, string | undefined>();
@@ -209,6 +224,7 @@ export function createRenderBatches(
     materialBatchCount: 0,
     copiedVertices: 0,
     copiedIndices: 0,
+    mergedChunkCount: 0,
   };
 
   const keyForMaterial = (material: Material) => {
@@ -346,8 +362,12 @@ export function createRenderBatches(
     const indexCount =
       source.geometry.index?.count ??
       source.geometry.getAttribute("position").count;
+    const mergeUnique =
+      options.mergeUniqueGeometries !== false &&
+      source.count === 1 &&
+      geometryOccurrences.get(source.geometry) === 1;
     if (
-      !options.multiDraw ||
+      (!options.multiDraw && !mergeUnique) ||
       source.count === 0 ||
       source.count > preserveAbove ||
       source.count > maxInstances ||
@@ -371,13 +391,15 @@ export function createRenderBatches(
       compatible.set(key, entry);
     }
     for (const [materialSignature, entry] of compatible) {
-      const key = `${schema}:${materialSignature}`;
+      const merged = mergeUnique && !entry.material.transparent;
+      const key = `${schema}:${materialSignature}:${merged}`;
       let bucket = buckets.get(key);
       if (!bucket) {
         bucket = {
           material: copyMaterial(entry.material, materialSignature),
           pieces: new Map(),
           tails: new Map(),
+          merged,
         };
         buckets.set(key, bucket);
       }
@@ -418,6 +440,7 @@ export function createRenderBatches(
       batch.perObjectFrustumCulled = false;
       batch.sortObjects = bucket.material.transparent;
       batch.raycast = () => {};
+      const spans: MergedPartSpan[] = [];
       for (const { piece, geometry } of pending) {
         const geometryId = batch.addGeometry(geometry);
         for (const source of piece.sources) {
@@ -429,10 +452,24 @@ export function createRenderBatches(
           const list = links.get(source) ?? [];
           list.push({ batch, first, count: source.count });
           links.set(source, list);
+          if (bucket.merged) {
+            const range = batch.getGeometryRangeAt(geometryId)!;
+            spans.push({
+              vertexStart: range.vertexStart,
+              vertexCount: range.vertexCount,
+              instanceId: first,
+            });
+          }
         }
         geometry.dispose();
       }
       objects.push(batch);
+      if (bucket.merged) {
+        const merged = createGpuMergedMesh(batch, spans);
+        mergedMeshes.set(batch, merged);
+        objects.push(merged.object);
+        stats.mergedChunkCount++;
+      }
       stats.materialBatchCount++;
       stats.copiedVertices += vertices;
       stats.copiedIndices += indices;
@@ -482,6 +519,9 @@ export function createRenderBatches(
         for (const link of sourceLinks) {
           link.batch.setMatrixAt(link.first + i, world);
           link.batch.setVisibleAt(link.first + i, visible);
+          mergedMeshes
+            .get(link.batch)
+            ?.setMatrixAt(link.first + i, world, visible);
         }
       }
     }
@@ -513,6 +553,7 @@ export function createRenderBatches(
     for (const object of objects)
       if (object instanceof BatchedMesh)
         object.sortObjects = (object.material as Material).transparent;
+    for (const merged of mergedMeshes.values()) merged.syncMaterial();
   }
 
   syncFromSources();
@@ -531,6 +572,7 @@ export function createRenderBatches(
       disposed = true;
       for (const object of objects)
         if (object instanceof BatchedMesh) object.dispose();
+      for (const merged of mergedMeshes.values()) merged.dispose();
       for (const object of ownedInstances) {
         object.morphTexture = null;
         object.dispose();

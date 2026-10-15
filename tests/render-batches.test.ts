@@ -45,7 +45,10 @@ describe("render-only material batching", () => {
     const b = source(new BoxGeometry(2, 3, 4));
     const indices = a.geometry.index!.array.slice();
     const groups = a.geometry.groups.map((group) => ({ ...group }));
-    const layer = createRenderBatches([a, b], { multiDraw: true });
+    const layer = createRenderBatches([a, b], {
+      multiDraw: true,
+      mergeUniqueGeometries: false,
+    });
     expect(layer.objects).toHaveLength(1);
     expect(layer.objects[0]).toBeInstanceOf(BatchedMesh);
     expect((layer.objects[0] as BatchedMesh).instanceCount).toBe(2);
@@ -59,7 +62,10 @@ describe("render-only material batching", () => {
   it("copies shared geometry once across source proxies and occurrences", () => {
     const a = source(new BoxGeometry(), new MeshStandardMaterial(), 3);
     const b = source(a.geometry, new MeshStandardMaterial(), 2);
-    const layer = createRenderBatches([a, b], { multiDraw: true });
+    const layer = createRenderBatches([a, b], {
+      multiDraw: true,
+      mergeUniqueGeometries: false,
+    });
     const batch = layer.objects[0] as BatchedMesh;
     expect(batch.instanceCount).toBe(5);
     expect(layer.stats.copiedVertices).toBe(24);
@@ -70,7 +76,10 @@ describe("render-only material batching", () => {
   it("combines CAD face groups per material while retaining high-count hardware instancing", () => {
     const original = faceGroups();
     const originalIndex = original.geometry.index!.array.slice();
-    const layer = createRenderBatches([original], { multiDraw: true });
+    const layer = createRenderBatches([original], {
+      multiDraw: true,
+      mergeUniqueGeometries: false,
+    });
     const rendered = layer.renderedInstances.get(original)!;
     expect(rendered).not.toBe(original);
     expect(rendered.geometry).not.toBe(original.geometry);
@@ -93,7 +102,10 @@ describe("render-only material batching", () => {
   it("uses separate render proxies even without multi-draw and permits independent LOD geometry", () => {
     const original = source();
     const geometry = original.geometry;
-    const layer = createRenderBatches([original], { multiDraw: false });
+    const layer = createRenderBatches([original], {
+      multiDraw: false,
+      mergeUniqueGeometries: false,
+    });
     const rendered = layer.renderedInstances.get(original)!;
     expect(layer.objects).toEqual([rendered]);
     expect(rendered.instanceMatrix).toBe(original.instanceMatrix);
@@ -122,6 +134,7 @@ describe("render-only material batching", () => {
     );
     const layer = createRenderBatches([a, b, c, d, custom], {
       multiDraw: true,
+      mergeUniqueGeometries: false,
     });
     expect(layer.stats.materialBatchCount).toBe(3);
     expect(layer.renderedInstances.has(custom)).toBe(true);
@@ -149,7 +162,10 @@ describe("render-only material batching", () => {
 
   it("updates transform, hide, count and section/opacity without rebuilding buffers", () => {
     const original = source(new BoxGeometry(), new MeshStandardMaterial(), 2);
-    const layer = createRenderBatches([original], { multiDraw: true });
+    const layer = createRenderBatches([original], {
+      multiDraw: true,
+      mergeUniqueGeometries: false,
+    });
     const batch = layer.objects[0] as BatchedMesh;
     const geometry = batch.geometry;
     original.position.set(10, 0, 0);
@@ -181,7 +197,10 @@ describe("render-only material batching", () => {
     const original = faceGroups();
     original.count = 1;
     original.geometry.setDrawRange(3, 9);
-    const layer = createRenderBatches([original], { multiDraw: true });
+    const layer = createRenderBatches([original], {
+      multiDraw: true,
+      mergeUniqueGeometries: false,
+    });
     expect(layer.stats.copiedIndices).toBe(9);
     expect(layer.stats.materialBatchCount).toBe(2);
     expect(original.geometry.drawRange).toEqual({ start: 3, count: 9 });
@@ -192,6 +211,7 @@ describe("render-only material batching", () => {
     const originals = Array.from({ length: 5 }, () => source());
     const layer = createRenderBatches(originals, {
       multiDraw: true,
+      mergeUniqueGeometries: false,
       maxVerticesPerBatch: 48,
       maxInstancesPerBatch: 2,
     });
@@ -210,6 +230,7 @@ describe("render-only material batching", () => {
     const originals = Array.from({ length: 5 }, () => source(geometry));
     const layer = createRenderBatches(originals, {
       multiDraw: true,
+      mergeUniqueGeometries: false,
       maxInstancesPerBatch: 2,
     });
     expect(layer.stats.materialBatchCount).toBe(3);
@@ -236,7 +257,10 @@ describe("render-only material batching", () => {
       new MeshBasicMaterial({ vertexColors: true }),
       1,
     );
-    const layer = createRenderBatches([original], { multiDraw: true });
+    const layer = createRenderBatches([original], {
+      multiDraw: true,
+      mergeUniqueGeometries: false,
+    });
     expect(layer.objects[0].geometry.getAttribute("color").array).toEqual(
       geometry.getAttribute("color").array,
     );
@@ -250,7 +274,10 @@ describe("render-only material batching", () => {
     const disposeGeometry = vi.spyOn(a.geometry, "dispose");
     const disposeMaterial = vi.spyOn(a.material, "dispose");
     const disposeRepeatedGeometry = vi.spyOn(repeated.geometry, "dispose");
-    const layer = createRenderBatches([a, repeated], { multiDraw: true });
+    const layer = createRenderBatches([a, repeated], {
+      multiDraw: true,
+      mergeUniqueGeometries: false,
+    });
     const owned = layer.objects[0];
     const disposeOwned = vi.spyOn(owned, "dispose");
     layer.dispose();
