@@ -2,6 +2,8 @@
 
 A local-first CAD, mesh and drawing viewer for inspecting assemblies and taking engineering measurements. One React/Three.js interface runs in the browser/PWA and in Tauri desktop and mobile shells. Model files are processed on the device.
 
+![Shenzhen 3D workbench measuring an 80 mm bracket](docs/images/workbench.png)
+
 Open STEP, IGES or BREP for CAD topology and exact supported feature queries; open common mesh formats, DXF/DWG drawings or SVG for inspection and geometry-based measurements. [Format support and limits](docs/FORMATS.md) distinguish these paths. Native SolidWorks, CATIA and other proprietary authoring formats require export to a supported interchange format.
 
 - Point distance with signed ΔX/ΔY/ΔZ and Euclidean length; three-point angles.
@@ -27,3 +29,7 @@ Production web builds include a generated service worker for offline use after t
 See [building and testing](docs/BUILDING.md), [platform requirements and current evidence](docs/PLATFORMS.md), [CAD/measurement validation](docs/VALIDATION.md), [format validation](docs/FORMAT_VALIDATION.md), and [third-party components](docs/THIRD_PARTY.md). Configured platform builds are not evidence that every platform has been packaged or tested on a device.
 
 Private repositories: [Casimir Engineering](https://github.com/casimir-engineering/shenzhen-3D).
+
+The sample STEP assembly imports with shared geometries for its repeated parts. Local native macOS import measured 2.76 seconds; device performance varies. The screenshot below shows an actual point measurement on that model.
+
+![Sample assembly with a 54.683 mm point measurement](docs/images/sample-assembly.png)
