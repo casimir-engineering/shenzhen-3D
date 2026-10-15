@@ -12,7 +12,10 @@ import {
   isLineOnlyStyle,
   updateViewerLighting,
 } from "./render-styles";
-import type { RayTracingState } from "./progressive-ray-tracer";
+import type {
+  ProgressiveRayTracer,
+  RayTracingState,
+} from "./progressive-ray-tracer";
 import type {
   ModelDocument,
   Part,
@@ -87,6 +90,13 @@ export class Viewer {
   private keyLight = new T.DirectionalLight(0xffffff, 3.2);
   private uniformLight = new T.AmbientLight(0xffffff, 0);
   private lightDirection = new T.Vector3(1, -2, 3).normalize();
+  private rayTracer?: ProgressiveRayTracer;
+  private rayTraceAbort?: AbortController;
+  private rayTraceTimer = 0;
+  private rayTraceGeneration = 0;
+  private rayTraceEnabled = false;
+  private rayTraceMoving = true;
+  private rayTraceState?: RayTracingState;
   private bounds = new T.Box3();
   private center = new T.Vector3();
   private radius = 50;
@@ -130,7 +140,7 @@ export class Viewer {
   constructor(private host: HTMLElement) {
     this.renderer = new T.WebGLRenderer({
       antialias: true,
-      alpha: false,
+      alpha: true,
       preserveDrawingBuffer: false,
       powerPreference: "high-performance",
     });
@@ -139,6 +149,11 @@ export class Viewer {
     this.renderer.outputColorSpace = T.SRGBColorSpace;
     this.renderer.toneMapping = T.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.35;
+    // A traced image sits underneath this canvas; raster interaction stays on top.
+    Object.assign(this.renderer.domElement.style, {
+      position: "relative",
+      zIndex: "2",
+    });
     host.appendChild(this.renderer.domElement);
     this.camera = new T.PerspectiveCamera(38, 1, 0.01, 100000);
     this.camera.up.set(0, 0, 1);
@@ -163,6 +178,7 @@ export class Viewer {
     this.grid.rotation.x = Math.PI / 2;
     this.label = document.createElement("div");
     this.label.className = "dimension-label";
+    this.label.style.zIndex = "3";
     this.label.hidden = true;
     host.appendChild(this.label);
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -208,6 +224,11 @@ export class Viewer {
     this.navigationUntil = performance.now() + 180;
     window.clearTimeout(this.navigationTimer);
     this.navigationTimer = window.setTimeout(this.invalidate, 190);
+    if (this.rayTracer && this.rayTraceEnabled) {
+      this.rayTraceMoving = true;
+      this.rayTracer.setMoving(true);
+      this.rayTracer.setCamera(this.camera);
+    }
     this.invalidate();
   };
   private resize() {
@@ -222,6 +243,10 @@ export class Viewer {
       this.camera.right = (h * width) / height;
     }
     this.camera.updateProjectionMatrix();
+    if (this.rayTraceEnabled) {
+      this.rayTracer?.setCamera(this.camera);
+      this.rayTracer?.resize();
+    }
     this.invalidate();
   }
   invalidate = () => {
@@ -233,6 +258,7 @@ export class Viewer {
   };
   private draw() {
     this.updateNavigationDetail();
+    this.syncRayTraceActivity();
     const worldPixel = this.worldPerPixel();
     for (const m of this.markers) m.scale.setScalar(worldPixel * 5);
     if (this.overlayData.points.length) {
@@ -248,12 +274,33 @@ export class Viewer {
       this.label.style.top = (-p.y * 0.5 + 0.5) * this.host.clientHeight + "px";
       this.label.hidden = !this.overlayData.text || p.z > 1 || p.z < -1;
     }
-    this.renderer.render(this.scene, this.camera);
+    this.renderScene(!!this.rayTracer?.imageVisible && !this.rayTraceMoving);
     this.onStats?.({
       calls: this.renderer.info.render.calls,
       triangles: this.renderer.info.render.triangles,
     });
     this.onViewChanged?.();
+  }
+  private renderScene(overlaysOnly: boolean) {
+    if (!overlaysOnly) {
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
+    const background = this.scene.background,
+      content = this.content.visible,
+      grid = this.grid.visible,
+      clearAlpha = this.renderer.getClearAlpha();
+    this.scene.background = null;
+    this.content.visible = this.grid.visible = false;
+    this.renderer.setClearAlpha(0);
+    try {
+      this.renderer.render(this.scene, this.camera);
+    } finally {
+      this.scene.background = background;
+      this.content.visible = content;
+      this.grid.visible = grid;
+      this.renderer.setClearAlpha(clearAlpha);
+    }
   }
   projectPick(pick: Pick) {
     const matrix = this.partDisplay.get(pick.partId);
@@ -290,6 +337,131 @@ export class Viewer {
     this.controls.target.copy(point);
     this.controls.update();
     this.invalidate();
+  }
+  private cancelRayTracing() {
+    window.clearTimeout(this.rayTraceTimer);
+    this.rayTraceTimer = 0;
+    this.rayTraceGeneration++;
+    this.rayTraceAbort?.abort();
+    this.rayTraceAbort = undefined;
+    this.rayTracer?.cancel();
+    this.rayTraceEnabled = false;
+    this.rayTraceMoving = true;
+    this.rayTraceState = undefined;
+  }
+  private syncRayTraceActivity() {
+    if (!this.rayTracer || !this.rayTraceEnabled) return;
+    const moving =
+      performance.now() < this.navigationUntil || this.activePointers.size > 0;
+    if (moving === this.rayTraceMoving) return;
+    this.rayTraceMoving = moving;
+    this.rayTracer.setMoving(moving);
+  }
+  private updateRayTracing(sceneChanged: boolean, settingsChanged: boolean) {
+    const supportedStyle = (this.options.renderStyle ?? "shaded") === "shaded";
+    const enabled =
+      !!this.options.rayTracing &&
+      !!this.model &&
+      supportedStyle &&
+      !this.lineObjects.size;
+    if (!enabled) {
+      if (this.rayTraceEnabled || this.rayTraceTimer) this.cancelRayTracing();
+      if (
+        this.options.rayTracing &&
+        this.model &&
+        (!supportedStyle || this.lineObjects.size)
+      )
+        this.onRayTracingState?.({
+          status: "unsupported",
+          samples: 0,
+          target: this.options.raySamples ?? 128,
+          progress: 0,
+          reason: !supportedStyle
+            ? "Ray tracing supports shaded surfaces. Select Shaded to enable it."
+            : "Ray tracing supports 3D triangle meshes; drawing lines remain available in raster rendering.",
+        });
+      return;
+    }
+    const retry =
+      settingsChanged &&
+      (this.rayTraceState?.status === "unsupported" ||
+        this.rayTraceState?.status === "error");
+    if (sceneChanged || !this.rayTraceEnabled || retry) {
+      this.cancelRayTracing();
+      this.rayTraceEnabled = true;
+      const generation = this.rayTraceGeneration;
+      const abort = (this.rayTraceAbort = new AbortController());
+      // Coalesce slider/visibility changes; camera changes only send matrices.
+      this.rayTraceTimer = window.setTimeout(() => {
+        this.rayTraceTimer = 0;
+        void this.prepareRayTracing(generation, abort.signal);
+      }, 160);
+    } else if (settingsChanged)
+      this.rayTracer?.setSettings({
+        samples: this.options.raySamples ?? 128,
+        resolution: this.options.rayResolution ?? 0.5,
+      });
+  }
+  private async prepareRayTracing(generation: number, signal: AbortSignal) {
+    try {
+      const { ProgressiveRayTracer } = await import("./progressive-ray-tracer");
+      if (
+        signal.aborted ||
+        this.disposed ||
+        generation !== this.rayTraceGeneration
+      )
+        return;
+      this.rayTracer ??= new ProgressiveRayTracer(
+        this.host,
+        this.renderer,
+        (state) => {
+          if (!this.rayTraceEnabled || this.disposed) return;
+          this.rayTraceState = state;
+          this.onRayTracingState?.(state);
+          this.onViewChanged?.();
+          this.invalidate();
+        },
+      );
+      this.rayTraceMoving = true;
+      this.rayTracer.setMoving(true);
+      await this.rayTracer.prepare(
+        {
+          sources: [...this.batches.values()],
+          camera: this.camera,
+          background: this.scene.background as T.Color,
+          lighting: {
+            // The UI's uniform light adds fill while keeping the movable key.
+            uniform: false,
+            intensity: this.keyLight.intensity,
+            ambient: 2.6 + this.uniformLight.intensity,
+            direction: this.lightDirection.toArray() as Vec3,
+            color: [1, 1, 1],
+          },
+        },
+        {
+          samples: this.options.raySamples ?? 128,
+          resolution: this.options.rayResolution ?? 0.5,
+        },
+        signal,
+      );
+      if (
+        signal.aborted ||
+        this.disposed ||
+        generation !== this.rayTraceGeneration
+      )
+        return;
+      this.rayTracer.setCamera(this.camera);
+      this.syncRayTraceActivity();
+    } catch (error) {
+      if (!signal.aborted && generation === this.rayTraceGeneration)
+        this.onRayTracingState?.({
+          status: "error",
+          samples: 0,
+          target: this.options.raySamples ?? 128,
+          progress: 0,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+    }
   }
   private updateNavigationDetail() {
     const navigating =
@@ -383,6 +555,7 @@ export class Viewer {
     this.mode = mode;
     this.filter = filter;
     this.snap = snap;
+    this.invalidate();
   }
   setModel(doc: ModelDocument) {
     this.clearModel();
@@ -482,6 +655,7 @@ export class Viewer {
     this.prepareNavigationDetail();
   }
   clearModel() {
+    this.cancelRayTracing();
     this.lodAbort?.abort();
     this.lodAbort = undefined;
     this.whenReady = Promise.resolve();
@@ -671,6 +845,21 @@ export class Viewer {
   }
   applyOptions(options: ViewOptions) {
     const old = this.options;
+    const traceSceneChanged =
+      this.transformsDirty ||
+      old.explode !== options.explode ||
+      old.hidden !== options.hidden ||
+      old.opacity !== options.opacity ||
+      old.theme !== options.theme ||
+      old.section !== options.section ||
+      old.sectionAxis !== options.sectionAxis ||
+      old.sectionPosition !== options.sectionPosition ||
+      old.renderStyle !== options.renderStyle ||
+      old.lightAzimuth !== options.lightAzimuth ||
+      old.lightElevation !== options.lightElevation ||
+      old.lightIntensity !== options.lightIntensity ||
+      old.uniformLight !== options.uniformLight ||
+      old.uniformIntensity !== options.uniformIntensity;
     this.options = options;
     this.scene.background = new T.Color(
       options.theme === "dark" ? 0x182126 : 0xe9eeef,
@@ -769,6 +958,11 @@ export class Viewer {
       this.renderBatches?.syncMaterials();
       this.applyEdgeStyle();
     }
+    this.updateRayTracing(
+      traceSceneChanged,
+      old.raySamples !== options.raySamples ||
+        old.rayResolution !== options.rayResolution,
+    );
     this.invalidate();
   }
   private displayMatrix(part: Part, explode: number) {
@@ -851,6 +1045,7 @@ export class Viewer {
     this.clearGroup(this.selection);
     for (const p of picks)
       this.highlightPick(p, this.selection, 0x71e5bb, 0.25);
+    this.syncRayTraceActivity();
     this.invalidate();
   }
   private highlightPick(
@@ -992,6 +1187,7 @@ export class Viewer {
         this.overlay.add(dashed);
       }
     }
+    this.syncRayTraceActivity();
     this.invalidate();
   }
   private screen(point: T.Vector3) {
@@ -1181,6 +1377,7 @@ export class Viewer {
     this.cancelHover();
     this.pendingPick = undefined;
     this.activePointers.add(event.pointerId);
+    this.syncRayTraceActivity();
     if (this.activePointers.size > 1) this.gesture = true;
     this.pointerStart = {
       x: event.clientX,
@@ -1191,6 +1388,7 @@ export class Viewer {
   private up = (event: PointerEvent) => {
     const start = this.pointerStart;
     this.activePointers.delete(event.pointerId);
+    this.syncRayTraceActivity();
     const wasGesture = this.gesture;
     if (!this.activePointers.size) this.gesture = false;
     if (!start || event.button !== 0 || wasGesture) return;
@@ -1212,6 +1410,7 @@ export class Viewer {
   private cancelPointer = (event: PointerEvent) => {
     this.pendingPick = undefined;
     this.activePointers.delete(event.pointerId);
+    this.syncRayTraceActivity();
     this.pointerStart = undefined;
     if (!this.activePointers.size) this.gesture = false;
   };
@@ -1241,6 +1440,7 @@ export class Viewer {
       this.clearGroup(this.hoverGroup);
       if (p && this.mode === "feature")
         this.highlightPick(p, this.hoverGroup, 0xa7cddd, 0.15);
+      this.syncRayTraceActivity();
       this.invalidate();
     }
   }
@@ -1248,6 +1448,7 @@ export class Viewer {
     this.cancelHover();
     this.lastHoverKey = "";
     this.clearGroup(this.hoverGroup);
+    this.syncRayTraceActivity();
     this.onHover?.("");
     this.invalidate();
   };
@@ -1279,14 +1480,44 @@ export class Viewer {
     this.invalidate();
   };
   async screenshot() {
+    let traced: ImageBitmap | undefined;
+    const generation = this.rayTraceGeneration;
+    if (
+      this.options.rayTracing &&
+      this.rayTracer &&
+      this.rayTracer.imageVisible &&
+      !this.rayTraceMoving &&
+      (this.rayTraceState?.samples ?? 0) > 0
+    ) {
+      try {
+        traced = await createImageBitmap(await this.rayTracer.snapshot());
+        if (
+          generation !== this.rayTraceGeneration ||
+          this.rayTraceMoving ||
+          !this.rayTracer.imageVisible
+        ) {
+          traced.close();
+          traced = undefined;
+        }
+      } catch {
+        /* A canceled/unsupported trace still has a complete raster export. */
+      }
+    }
     // Export full geometry even if the request arrives during navigation.
     this.navigationUntil = 0;
     this.draw();
+    // A failed worker readback must still export the complete raster model.
+    if (!traced && this.rayTracer?.imageVisible) this.renderScene(false);
     const canvas = document.createElement("canvas");
     canvas.width = this.renderer.domElement.width;
     canvas.height = this.renderer.domElement.height;
     const ctx = canvas.getContext("2d")!;
+    if (traced) {
+      ctx.drawImage(traced, 0, 0, canvas.width, canvas.height);
+      traced.close();
+    }
     ctx.drawImage(this.renderer.domElement, 0, 0);
+    this.invalidate();
     if (!this.label.hidden) {
       const ratio = this.renderer.getPixelRatio();
       const x = parseFloat(this.label.style.left) * ratio,
@@ -1310,6 +1541,7 @@ export class Viewer {
     this.resizeObserver.disconnect();
     this.controls.dispose();
     this.clearModel();
+    this.rayTracer?.dispose();
     this.clearGroup(this.overlay);
     this.grid.geometry.dispose();
     (this.grid.material as T.Material).dispose();

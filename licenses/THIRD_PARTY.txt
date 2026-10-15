@@ -39,3 +39,9 @@ https://github.com/casimir-engineering/shenzhen-3D
 Recipients need access to the matching snapshot when it accompanies a
 binary. Native Rust/platform attribution requires a separate inventory
 for the actual package. See docs/THIRD_PARTY.md in the source repository.
+
+Optional progressive ray tracing uses three-gpu-pathtracer 0.0.27 (MIT),
+with three-mesh-bvh acceleration structures. Its npm peer xatlas-web 0.1.0
+is MIT-licensed; UV baking is not used by the viewer's ray-tracing mode.
+The installed package notices and integrity values are recorded by
+prepare:assets in the shipped npm inventory.
