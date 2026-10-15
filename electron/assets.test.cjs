@@ -34,3 +34,30 @@ test('packaged shell ignores development URLs and development accepts only fixed
   assert.match(devURL('http://127.0.0.1:1420/tests/perf/index.html?source=current', false), /1420/);
   for (const value of ['https://evil.invalid/', 'http://127.0.0.1:1420/secret', 'http://localhost:80/', 'file:///tmp/test']) assert.throws(() => devURL(value, false));
 });
+test('rendering and CAD worker responses preserve the document CSP boundary', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'shenzhen-worker-policy-'));
+  const assets = path.join(directory, 'assets');
+  await fs.mkdir(assets);
+  const names = ['ray-tracing.worker-Ab12_cd.js', 'cad.worker-Kernel1.js', 'render-library.js', 'ray-tracing.worker.js', 'ray-tracing.worker-Ab12_cd.js.txt'];
+  for (const name of names) await fs.writeFile(path.join(assets, name), 'export {};');
+  await fs.writeFile(path.join(directory, 'index.html'), '<!doctype html>');
+  const handler = createAssetHandler(directory);
+  try {
+    const document = await handler({ url: 'app://local/', method: 'GET' });
+    const documentPolicy = document.headers.get('Content-Security-Policy');
+    assert.match(documentPolicy, /worker-src 'self' blob:/); // ZIP Blob workers and bundled module workers.
+    assert.match(documentPolicy, /script-src 'self' 'wasm-unsafe-eval';/);
+    assert.equal(documentPolicy.includes("'unsafe-eval'"), false);
+    for (const [index, name] of names.entries()) {
+      const response = await handler({ url: `app://local/assets/${name}?v=1`, method: 'HEAD' });
+      assert.equal(response.status, 200);
+      assert.equal(await response.text(), '');
+      const policy = response.headers.get('Content-Security-Policy');
+      assert.equal(policy.includes("'unsafe-eval'"), index < 2, name);
+      assert.match(policy, /connect-src 'self' blob: data:/);
+      assert.match(policy, /object-src 'none'/);
+      assert.equal(response.headers.get('X-Content-Type-Options'), 'nosniff');
+    }
+    assert.notEqual((await handler({ url: 'app://local/assets/%2e%2e%2f%2e%2e%2foutside.worker-Hash.js', method: 'GET' })).status, 200);
+  } finally { await fs.rm(directory, { recursive: true, force: true }); }
+});

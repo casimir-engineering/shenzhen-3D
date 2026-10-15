@@ -2,29 +2,45 @@ import { _electron as electron, expect } from '@playwright/test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { checkReviewProject, checkRayTracing } from './smoke-features.mjs';
+
+// Default: compatible with the 0.1.1 packaged checkpoint. Add --review and
+// --ray-tracing for 0.1.2; --development explicitly tests the live local app.
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'shenzhen-electron-smoke-'));
 const environment = { ...process.env };
 delete environment.SHENZHEN_3D_DEV_URL;
 const packaged = process.argv.find(argument => argument.startsWith('--executable='))?.slice(13);
+const development = process.argv.includes('--development');
+if (development && packaged) throw new Error('Development smoke cannot use a packaged executable');
+if (development) environment.SHENZHEN_3D_DEV_URL = 'http://127.0.0.1:1420/';
 const application = await electron.launch({ ...(packaged ? { executablePath: packaged } : {}), args: packaged ? [] : [path.resolve('electron/main.cjs')], env: environment });
 const errors = [];
 const serviceWorkerRequests = [];
+const workers = [];
+const checks = ['sandbox', 'context isolation', 'local protocol', 'native Cmd+O STEP import', 'worker/WASM', 'PNG after delayed native download', 'CSV export', 'no native service worker', 'remote navigation blocked', 'popups blocked', 'no application errors'];
 try {
   const page = await application.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
+  page.on('worker', worker => workers.push(worker.url()));
   page.on('request', request => { if (new URL(request.url()).pathname === '/sw.js') serviceWorkerRequests.push(request.url()); });
   page.on('console', message => { if (message.type() === 'error') { errors.push(message.text()); console.error(message.text()); } });
-  await expect(page.locator('canvas')).toBeVisible();
+  await expect(page.locator('.viewport-canvas > canvas').first()).toBeVisible();
   await page.bringToFront();
   await application.evaluate(({ app, BrowserWindow }) => { app.focus({ steal: true }); BrowserWindow.getAllWindows()[0].focus(); });
-  console.log('Electron production app loaded');
+  console.log(`Electron ${development ? 'development' : 'production'} app loaded`);
   const preferences = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences());
   expect(preferences.sandbox).toBe(true);
   expect(preferences.contextIsolation).toBe(true);
   expect(preferences.nodeIntegration).toBe(false);
   const runtime = await application.evaluate(({ app }) => ({ packaged: app.isPackaged, applicationVersion: app.getVersion(), versions: process.versions }));
-  expect(page.url()).toBe('app://local/');
+  const applicationURL = development ? 'http://127.0.0.1:1420/' : 'app://local/';
+  expect(page.url()).toBe(applicationURL);
+  const documentCSP = development ? undefined : await page.evaluate(async () => (await fetch('/')).headers.get('Content-Security-Policy'));
+  if (!development) {
+    expect(documentCSP).toContain("worker-src 'self' blob:");
+    expect(documentCSP).not.toContain("'unsafe-eval'");
+  }
   expect(await page.evaluate(() => typeof window.require)).toBe('undefined');
   const capability = await page.evaluate(async () => {
     const gl = document.querySelector('canvas').getContext('webgl2');
@@ -71,13 +87,16 @@ try {
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   });
   await expect.poll(async () => fs.readFile(csv, 'utf8').catch(() => ''), { timeout: 15_000 }).toBe('name,distance\nExample,12.5\n');
+  if (process.argv.includes('--review')) checks.push(...await checkReviewProject(application, page, directory));
+  if (process.argv.includes('--ray-tracing')) checks.push(...await checkRayTracing(application, page, directory));
+  if (process.argv.includes('--ray-tracing')) expect(workers.some(url => /ray-tracing\.worker[.-]/.test(url))).toBe(true);
   await page.evaluate(() => { window.open('https://example.com/'); });
   expect(await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
   await page.evaluate(() => { location.href = 'https://example.com/'; });
-  expect(page.url()).toBe('app://local/');
-  expect(serviceWorkerRequests).toEqual([]);
+  expect(page.url()).toBe(applicationURL);
+  if (!development) expect(serviceWorkerRequests).toEqual([]);
   expect(errors).toEqual([]);
-  const report = { ...runtime, ...capability, checks: ['sandbox', 'context isolation', 'local protocol', 'native Cmd+O STEP import', 'worker/WASM', 'PNG after delayed native download', 'CSV export', 'no native service worker', 'remote navigation blocked', 'popups blocked', 'no application errors'] };
+  const report = { ...runtime, ...capability, development, documentCSP, workers, checks: development ? checks.filter(check => !['local protocol', 'no native service worker'].includes(check)) : checks };
   const output = process.argv.find(argument => argument.startsWith('--report='))?.slice(9);
   if (output) {
     await fs.writeFile(output, JSON.stringify(report, null, 2));
