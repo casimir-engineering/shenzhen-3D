@@ -68,9 +68,9 @@ An unsigned archive proves compilation but cannot be installed on an iPhone. For
 
 ### Native runtime checks (16 October 2026)
 
-The production macOS app imported the sample STEP assembly locally in approximately 2.73 seconds in that test. Native Open and Save dialogs worked; a viewport PNG was exported. The native Settings shortcut (Command-comma) opened the settings panel. The universal build includes Apple Silicon and Intel binaries. This local runtime test used Apple Silicon.
+The production macOS app imported the sample STEP assembly locally in 2.76 seconds in the final signed build. Native Open and Save dialogs worked; a viewport PNG was exported. The native Settings shortcut (Command-comma) opened the settings panel. The universal build includes Apple Silicon and Intel binaries. This local runtime test used Apple Silicon.
 
-The iPhone 17 Pro simulator on iOS 26.5 rendered the demo model and measured two selected points (32.353 mm), with markers and the mobile measurement panel visible. A native Files Save dialog exported a nonempty PNG to the app Documents folder. The sample STEP also opened successfully through Files and rendered all instances. Documents are exposed in Files for opening local models. Simulator behavior does not establish performance on a physical iPhone or iPad.
+The iPhone 17 Pro simulator on iOS 26.5 rendered the demo model and measured two selected points (62.048 mm in the final build), with markers and the mobile measurement panel visible. A native Files Save dialog exported a nonempty PNG to the app Documents folder. The sample STEP also opened successfully through Files and rendered all instances. Documents are exposed in Files for opening local models. Simulator behavior does not establish performance on a physical iPhone or iPad.
 
 The Android API 35 ARM64 emulator installed and launched the APK, rendered the WebGL welcome screen, and had no AndroidRuntime crash in the launch log. Android touch gestures have not been exercised. The native activity applies status/navigation-bar and display-cutout insets and uses light system-bar icons on the dark application background.
 
@@ -81,3 +81,20 @@ A local device IPA was successfully exported with the authorized Apple Developme
 The optimized local Android ARM64 APK is development-signed for direct installation (approximately 18 MB); the unsigned release APK and AAB are also retained. This signing key is for development, not a production Play release.
 
 CI includes Linux and Windows startup smoke tests that check whether the packaged executable remains alive for 15 seconds (Linux under Xvfb). These checks do not establish that rendering, file dialogs, or interaction work on those systems. The web CI job also runs the real CAD-kernel measurement fixtures with `npm run test:cad`.
+
+
+### Final local deliverables
+
+The final native packages use `index-BsJDuriz.js` and `index-B8pKqrJx.css`, from the frozen production assets with `dist/index.html` SHA-256 `711dcf41688d1d9b18a7bec00657378539ddc717158caa0dbbf8545685f7824c`. The embedded JavaScript filename was checked in both macOS architectures, Android APK/AAB, iOS simulator binary, and the exported device IPA.
+
+Packages are copied into `artifacts/releases/`:
+
+| File | Status |
+| --- | --- |
+| `shenzhen-3d-0.1.0-macos-universal.dmg` | Developer ID signed, Apple Silicon + Intel; strict code-signature verification passed for app and DMG. Not notarized. The signed app launched and imported the sample STEP. |
+| `shenzhen-3d-0.1.0-android-arm64-development.apk` | Optimized ARM64 release with development signature; APK v2/v3 verification passed; installed and launched on emulator. |
+| `shenzhen-3d-0.1.0-android-arm64-unsigned.aab` | ARM64 Play bundle; requires production signing/release setup. |
+| `shenzhen-3d-0.1.0-ios-registered-devices.ipa` | Signed development IPA for the team's registered devices; archive strict signature verification passed. |
+| `shenzhen-3d-0.1.0-ios-arm64-simulator.tar.gz` | ARM64 simulator app, preserving executable modes; installed and tested on iOS 26.5. |
+
+Final iOS checks confirmed safe header/toolbar/footer layout, point selections without activating the panel beneath the tap, and the sample STEP opening through Files. `artifacts/native-ios-measurement.png` and `artifacts/native-ios-step.png` record those final checks. `artifacts/native-android-launch.png` records the final Android startup layout. Android touch interaction and physical iOS-device runtime behavior remain unverified.
