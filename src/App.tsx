@@ -65,14 +65,6 @@ import type { ReviewNote } from "./core/project-file";
 import type { Viewer } from "./core/viewer";
 import type { RecentEntry } from "./core/recent-files";
 import { viewportShortcut } from "./core/viewport-shortcuts";
-import {
-  NAVIGATION_STYLES,
-  DEFAULT_NAVIGATION_STYLE,
-  isNavigationStyle,
-  navigationStyle,
-  navigationGestures,
-  type NavigationStyleId,
-} from "./core/navigation-style";
 import type { RayTracingState } from "./core/ray-tracing-types";
 import { ACCEPT } from "./core/formats";
 import { cad } from "./core/cad-client";
@@ -207,21 +199,6 @@ function App() {
   const [theme, setTheme] = useState<"dark" | "light">(
     preferences.current.theme || "dark",
   );
-  const [navigation, setNavigation] = useState<"mouse" | "trackpad">(
-    preferences.current.navigation === "trackpad" ? "trackpad" : "mouse",
-  );
-  const [navigationStyleId, setNavigationStyle] = useState<NavigationStyleId>(
-    isNavigationStyle(preferences.current.navigationStyle)
-      ? preferences.current.navigationStyle
-      : DEFAULT_NAVIGATION_STYLE,
-  );
-  const [reverseWheelZoom, setReverseWheelZoom] = useState(
-    preferences.current.reverseWheelZoom === true,
-  );
-  const gestures = navigationGestures(
-    navigationStyle(navigationStyleId),
-    reverseWheelZoom,
-  );
   const [navigationDetail, setNavigationDetail] = useState<"auto" | "full">(
     preferences.current.navigationDetail === "full" ? "full" : "auto",
   );
@@ -303,22 +280,12 @@ function App() {
         unit,
         precision,
         theme,
-        navigation,
-        navigationVersion: 3,
-        navigationStyle: navigationStyleId,
-        reverseWheelZoom,
+        navigation: "auto",
+        navigationVersion: 4,
         navigationDetail,
       }),
     );
-  }, [
-    unit,
-    precision,
-    theme,
-    navigation,
-    navigationStyleId,
-    reverseWheelZoom,
-    navigationDetail,
-  ]);
+  }, [unit, precision, theme, navigationDetail]);
   const clear = useCallback(() => {
     epoch.current++;
     setPoints([]);
@@ -369,9 +336,7 @@ function App() {
         sectionPosition,
         hidden,
         theme,
-        navigation,
-        navigationStyle: navigationStyleId,
-        reverseWheelZoom,
+        navigation: "auto",
         navigationDetail,
         ...display,
         rayTracing,
@@ -390,9 +355,6 @@ function App() {
     sectionPosition,
     hidden,
     theme,
-    navigation,
-    navigationStyleId,
-    reverseWheelZoom,
     navigationDetail,
     display,
     rayTracing,
@@ -2311,7 +2273,7 @@ function App() {
           <span className="status-navigation">
             {usingNavigationDetail
               ? "Navigation detail · full detail when still"
-              : `${navigationStyle(navigationStyleId).label} · ${navigation === "trackpad" ? "two-finger pan · pinch zoom" : "scroll zoom"}`}
+              : "Drag to pan · right-drag to orbit · pinch or wheel to zoom"}
           </span>
         )}
         {doc && (
@@ -2376,23 +2338,15 @@ function App() {
             <h3>Navigation</h3>
             <dl>
               <dt>Orbit</dt>
-              <dd>{gestures.orbit.join(" · ")} · one finger</dd>
+              <dd>
+                Right-drag around the current view center · one-finger touch
+              </dd>
               <dt>Pan</dt>
               <dd>
-                {gestures.pan.join(" · ")} · two-finger touch
-                {navigation === "trackpad" ? " / trackpad swipe" : ""}
+                Left-drag or middle-drag · two-finger trackpad swipe or touch
               </dd>
               <dt>Zoom</dt>
-              <dd>
-                {[
-                  ...gestures.zoom.filter(
-                    (gesture) =>
-                      navigation !== "trackpad" ||
-                      !gesture.startsWith("Scroll"),
-                  ),
-                  "Pinch",
-                ].join(" · ")}
-              </dd>
+              <dd>Mouse wheel · pinch</dd>
               <dt>Fit model</dt>
               <dd>
                 <kbd>F</kbd>
@@ -2642,49 +2596,6 @@ function App() {
             </button>
           </div>
         </label>
-        <label>
-          Input device
-          <select
-            aria-label="Input device"
-            value={navigation}
-            onChange={(event) =>
-              setNavigation(event.target.value as "mouse" | "trackpad")
-            }
-          >
-            <option value="mouse">Mouse · wheel zoom</option>
-            <option value="trackpad">
-              Trackpad · two-finger pan, pinch zoom
-            </option>
-          </select>
-        </label>
-        <label>
-          Navigation style
-          <select
-            value={navigationStyleId}
-            onChange={(event) => {
-              if (isNavigationStyle(event.target.value))
-                setNavigationStyle(event.target.value);
-            }}
-          >
-            {NAVIGATION_STYLES.map((style) => (
-              <option key={style.id} value={style.id}>
-                {style.label}
-              </option>
-            ))}
-          </select>
-          <small>{navigationStyle(navigationStyleId).summary}</small>
-        </label>
-        <div className="navigation-input-toggle">
-          <label>
-            Reverse scroll zoom
-            <input
-              type="checkbox"
-              checked={reverseWheelZoom}
-              disabled={navigation === "trackpad"}
-              onChange={(event) => setReverseWheelZoom(event.target.checked)}
-            />
-          </label>
-        </div>
         <label>
           Navigation detail
           <select

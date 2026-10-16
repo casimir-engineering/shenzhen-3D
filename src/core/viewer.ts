@@ -1,3 +1,4 @@
+import "./native-scroll";
 import * as T from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { MeshBVH, acceleratedRaycast } from "three-mesh-bvh";
@@ -7,7 +8,6 @@ import {
   WheelGestureClassifier,
   pointerDrag,
   orbitMouseAction,
-  wheelZoomSpeed,
   type NavigationMode,
 } from "./navigation-gestures";
 import {
@@ -168,7 +168,7 @@ export class Viewer {
     sectionPosition: 0.5,
     hidden: new Set(),
     theme: "dark",
-    navigation: "mouse",
+    navigation: "auto",
     navigationStyle: DEFAULT_NAVIGATION_STYLE,
     reverseWheelZoom: false,
   };
@@ -266,7 +266,7 @@ export class Viewer {
   private makeControls() {
     const c = new OrbitControls(this.camera, this.renderer.domElement);
     c.enableDamping = false;
-    c.zoomToCursor = true;
+    c.zoomToCursor = false;
     c.screenSpacePanning = true;
     c.rotateSpeed = 0.75;
     c.zoomSpeed = 1.3;
@@ -1816,8 +1816,25 @@ export class Viewer {
   private wheel = (event: WheelEvent) => {
     if (
       this.wheelGestures.classify(
-        event,
-        this.options.navigation ?? "mouse",
+        {
+          deltaX: event.deltaX,
+          deltaY: event.deltaY,
+          deltaMode: event.deltaMode,
+          ctrlKey: event.ctrlKey,
+          wheelDeltaX: (event as WheelEvent & { wheelDeltaX?: number })
+            .wheelDeltaX,
+          wheelDeltaY: (event as WheelEvent & { wheelDeltaY?: number })
+            .wheelDeltaY,
+          momentum: (event as WheelEvent & { momentum?: boolean }).momentum,
+          devicePixelRatio: window.devicePixelRatio,
+          nativeSource:
+            event.isTrusted && !event.ctrlKey
+              ? window.shenzhenScroll?.source(
+                  performance.timeOrigin + event.timeStamp,
+                )
+              : null,
+        },
+        "auto",
         performance.now(),
       ) === "pan"
     ) {
@@ -1832,9 +1849,7 @@ export class Viewer {
       this.controls.pan(-event.deltaX * scale, -event.deltaY * scale);
       return;
     }
-    this.controls.zoomSpeed = this.activePointers.size
-      ? 1.3
-      : wheelZoomSpeed(1.3, !!this.options.reverseWheelZoom, event.ctrlKey);
+    this.controls.zoomSpeed = 1.3;
   };
   async screenshot() {
     let traced: ImageBitmap | undefined;

@@ -1,9 +1,10 @@
 import { chromium, expect } from "@playwright/test";
 import fs from "node:fs/promises";
 import {
-  referenceBindings,
+  fixedBindings,
   modifiers,
-  wheelCases,
+  discreteWheelCases,
+  precisionWheelCases,
 } from "../../tests/perf/navigation-reference-cases.mjs";
 const software = process.argv.includes("--software");
 const browser = await chromium.launch({
@@ -118,13 +119,23 @@ const drag = async (
   return state();
 };
 const wheel = async (event) => {
-  await page.locator("canvas").dispatchEvent("wheel", {
-    bubbles: true,
-    cancelable: true,
-    clientX: 500,
-    clientY: 350,
-    ...event,
-  });
+  await page.evaluate((values) => {
+    const { wheelDeltaX, wheelDeltaY, momentum, ...init } = values;
+    const event = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 500,
+      clientY: 350,
+      ...init,
+    });
+    for (const [name, value] of Object.entries({
+      wheelDeltaX,
+      wheelDeltaY,
+      momentum,
+    }))
+      if (value !== undefined) Object.defineProperty(event, name, { value });
+    document.querySelector("canvas").dispatchEvent(event);
+  }, event);
   await settle();
   return state();
 };
@@ -150,32 +161,28 @@ try {
   for (const is2D of [false, true])
     for (const orthographic of [false, true]) {
       const mode = `${is2D ? "2D" : "3D"} ${orthographic ? "orthographic" : "perspective"}`;
-      for (const binding of referenceBindings) {
-        const initial = await reset(is2D, orthographic, {
-          navigationStyle: binding.style,
-        });
-        for (const button of ["middle", "right"])
-          for (const [index, keys] of modifiers.entries()) {
-            await page.evaluate(
-              (initial) => window.measurementNavigation.restore(initial),
-              initial,
-            );
-            const expected = binding[button][index],
-              action = is2D && expected === "orbit" ? "pan" : expected;
-            const after = await drag(button, keys);
-            const name = `${mode} ${binding.style} ${keys.join("+") || "plain"}+${button}`;
-            assertAction(initial, after, action, name);
-            bindingResults.push({
-              mode,
-              style: binding.style,
-              button,
-              modifiers: keys,
-              expected: action,
-            });
-          }
+      for (const binding of fixedBindings) {
+        const initial = await reset(is2D, orthographic);
+        for (const keys of modifiers) {
+          await page.evaluate(
+            (initial) => window.measurementNavigation.restore(initial),
+            initial,
+          );
+          const action =
+            is2D && binding.action === "orbit" ? "pan" : binding.action;
+          const after = await drag(binding.button, keys);
+          const name = `${mode} ${keys.join("+") || "plain"}+${binding.button}`;
+          assertAction(initial, after, action, name);
+          bindingResults.push({
+            mode,
+            button: binding.button,
+            modifiers: keys,
+            expected: action,
+          });
+        }
       }
-      for (const legacy of ["auto", "mouse"])
-        for (const event of wheelCases) {
+      for (const legacy of ["auto", "mouse", "trackpad"]) {
+        for (const event of discreteWheelCases) {
           const initial = await reset(is2D, orthographic, {
             navigation: legacy,
           });
@@ -185,72 +192,92 @@ try {
             Number.isFinite(amount) &&
               Math.abs(amount) > 1e-9 &&
               Math.sign(amount) === -Math.sign(event.deltaY),
-            `${mode} legacy=${legacy} wheel ${event.deltaY}/${event.deltaMode}: always zooms in the expected direction`,
+            `${mode} saved=${legacy} discrete tick ${event.deltaY}/${event.deltaMode}: zooms`,
           );
           check(
             close(initial.quaternion, after.quaternion) &&
               close(initial.target, after.target) &&
               after.picks === 0,
-            `${mode} wheel ${event.deltaY}/${event.deltaMode}: never pans, rotates or selects`,
+            `${mode} discrete wheel never pans, rotates or selects`,
           );
-          wheelResponses.push({ mode, legacy, ...event, amount });
+          wheelResponses.push({
+            mode,
+            legacy,
+            source: "browser-discrete",
+            ...event,
+            amount,
+          });
         }
-      for (const event of [
-        ...wheelCases,
-        { deltaX: 37.5, deltaY: 0, deltaMode: 0 },
-      ]) {
-        const initial = await reset(is2D, orthographic, {
-          navigation: "trackpad",
-        });
-        const after = await wheel(event);
-        assertAction(
-          initial,
-          after,
-          "pan",
-          `${mode} explicit trackpad wheel ${event.deltaX}/${event.deltaY}/${event.deltaMode}`,
-        );
-        wheelResponses.push({
-          mode,
-          legacy: "trackpad",
-          ...event,
-          amount: zoomChange(initial, after),
-        });
+        for (const event of precisionWheelCases) {
+          const initial = await reset(is2D, orthographic, {
+            navigation: legacy,
+          });
+          const after = await wheel(event);
+          assertAction(
+            initial,
+            after,
+            "pan",
+            `${mode} saved=${legacy} precision/momentum ${event.deltaX}/${event.deltaY}: pans`,
+          );
+          wheelResponses.push({
+            mode,
+            legacy,
+            source: "browser-precision",
+            ...event,
+            amount: zoomChange(initial, after),
+          });
+        }
+        for (const deltaY of [-2, 2]) {
+          const initial = await reset(is2D, orthographic, {
+            navigation: legacy,
+          });
+          const after = await wheel({
+            deltaX: 0,
+            deltaY,
+            deltaMode: 0,
+            ctrlKey: true,
+          });
+          assertAction(
+            initial,
+            after,
+            "zoom",
+            `${mode} saved=${legacy} Ctrl pinch`,
+          );
+          check(
+            Math.sign(zoomChange(initial, after)) === -Math.sign(deltaY),
+            `${mode}: pinch direction is preserved`,
+          );
+        }
       }
-      for (const navigation of ["mouse", "trackpad"])
-        for (const reverse of [false, true])
-          for (const pinch of [false, true]) {
-            const initial = await reset(is2D, orthographic, {
-              navigation,
-              reverseWheelZoom: reverse,
-            });
-            const after = await wheel({
-              deltaX: 0,
-              deltaY: -2,
-              deltaMode: 0,
-              ctrlKey: pinch,
-            });
-            if (navigation === "trackpad" && !pinch) {
-              assertAction(
-                initial,
-                after,
-                "pan",
-                `${mode} trackpad reverse=${reverse}: wheel still pans`,
-              );
-              continue;
-            }
-            check(
-              Math.sign(zoomChange(initial, after)) ===
-                (reverse && !pinch ? -1 : 1),
-              `${mode} ${navigation} ${pinch ? "pinch" : "wheel"} reverse=${reverse}: expected zoom direction`,
-            );
-            check(
-              close(initial.quaternion, after.quaternion) && after.picks === 0,
-              `${mode} reversed wheel/pinch never rotates or selects`,
-            );
-          }
       const initial = await reset(is2D, orthographic);
       const left = await drag("left");
-      assertAction(initial, left, is2D ? "pan" : "orbit", `${mode} left drag`);
+      assertAction(initial, left, "pan", `${mode} left drag`);
+      await page.evaluate(
+        (initial) => window.measurementNavigation.restore(initial),
+        initial,
+      );
+      const middle = await drag("middle");
+      check(
+        close(left.position, middle.position) &&
+          close(left.target, middle.target) &&
+          close(left.quaternion, middle.quaternion),
+        `${mode}: identical left and middle drags produce the same pan`,
+      );
+      const rightAfterPan = await drag("right");
+      assertAction(
+        middle,
+        rightAfterPan,
+        is2D ? "pan" : "orbit",
+        `${mode}: right drag after panning`,
+      );
+      if (!is2D) {
+        check(
+          !close(initial.target, middle.target) &&
+            close(rightAfterPan.target, middle.target) &&
+            Math.abs(rightAfterPan.distance - middle.distance) < 1e-6,
+          `${mode}: right orbit keeps the panned view center and camera distance, without snapping to the object`,
+        );
+      }
     }
   // Genuine browser wheel delivery supplements the deterministic DOM delta matrix.
   for (const orthographic of [false, true]) {
@@ -263,12 +290,14 @@ try {
       zoomChange(initial, after) < 0 && close(initial.target, after.target),
       "Actual fractional mixed-axis browser wheel zooms instead of panning",
     );
-    const trackpad = await reset(false, orthographic, {
-      navigation: "trackpad",
-    });
-    await page.mouse.wheel(-60, -35);
-    await settle();
-    const swiped = await state(),
+    const trackpad = await reset(false, orthographic);
+    const swiped = await wheel({
+        deltaX: -8.5,
+        deltaY: -18.5,
+        deltaMode: 0,
+        wheelDeltaX: 25.5,
+        wheelDeltaY: 55.5,
+      }),
       event = await page.evaluate(() =>
         window.measurementNavigation.wheelSample(),
       );
@@ -276,7 +305,7 @@ try {
       trackpad,
       swiped,
       "pan",
-      "Actual explicit-trackpad wheel pans without zoom",
+      "Precision DOM wheel sample pans without zoom",
     );
     await page.evaluate(
       (initial) => window.measurementNavigation.restore(initial),
@@ -289,137 +318,125 @@ try {
     check(
       close(middle.position, swiped.position) &&
         close(middle.target, swiped.target),
-      "Middle-button pan matches oppositely signed explicit trackpad scrolling",
+      "Middle-button pan matches oppositely signed precision scrolling",
     );
     const horizontal = await reset(false, orthographic, {
       navigation: "mouse",
     });
     assertAction(
       horizontal,
-      await wheel({ deltaX: 37.5, deltaY: 0, deltaMode: 0 }),
+      await wheel({
+        deltaX: 37.5,
+        deltaY: 0,
+        deltaMode: 0,
+        wheelDeltaX: -120,
+        wheelDeltaY: 0,
+      }),
       "none",
       "Pure horizontal mouse wheel does not become trackpad pan",
     );
   }
   for (const scenario of [
     {
-      style: "onshape",
       button: "right",
       keys: ["Shift"],
       releaseAfterPress: true,
-      expected: "pan",
+      expected: "orbit",
     },
     {
-      style: "solidworks",
       button: "middle",
       keys: ["Control"],
       releaseAfterPress: true,
       expected: "pan",
     },
     {
-      style: "onshape",
+      button: "left",
+      keys: ["Meta"],
+      releaseAfterPress: true,
+      expected: "pan",
+    },
+    {
       button: "right",
       keys: [],
-      pressAfterDown: ["Shift"],
+      pressAfterDown: ["Shift", "Control"],
       expected: "orbit",
     },
   ]) {
-    const initial = await reset(false, false, {
-      navigationStyle: scenario.style,
-    });
+    const initial = await reset(false, false);
     const after = await drag(scenario.button, scenario.keys, scenario);
     assertAction(
       initial,
       after,
       scenario.expected,
-      `${scenario.style}: press-time binding survives modifier changes during drag`,
+      `${scenario.button}: modifier changes during a drag do not change the action`,
     );
   }
-  for (const orthographic of [false, true]) {
-    const initial = await reset(false, orthographic, {
-      navigation: "trackpad",
+  for (const is2D of [false, true])
+    for (const orthographic of [false, true]) {
+      await reset(is2D, orthographic);
+      for (const item of [
+        { event: precisionWheelCases[2], action: "pan" },
+        { event: discreteWheelCases[1], action: "zoom" },
+        { event: precisionWheelCases[10], action: "pan" },
+        {
+          event: { deltaX: 0, deltaY: -2, deltaMode: 0, ctrlKey: true },
+          action: "zoom",
+        },
+        { event: discreteWheelCases[4], action: "zoom" },
+        { event: precisionWheelCases[11], action: "pan" },
+      ]) {
+        const before = await state();
+        const after = await wheel(item.event);
+        assertAction(
+          before,
+          after,
+          item.action,
+          `${is2D ? "2D" : "3D"} ${orthographic ? "ortho" : "perspective"}: switching wheel, swipe and pinch without resetting the camera`,
+        );
+      }
+    }
+  // Projection recreation and model replacement must retain fixed controls.
+  await reset(false, false);
+  const projected = await page.evaluate(() => {
+    const f = window.measurementNavigation;
+    f.viewer.setProjection(true);
+    return f.snapshot();
+  });
+  assertAction(
+    projected,
+    await drag("middle"),
+    "pan",
+    "Projection recreation retains middle-button pan",
+  );
+  const wheelBefore = await state(),
+    wheelAfter = await wheel({
+      deltaY: 120,
+      deltaX: 0,
+      deltaMode: 0,
+      wheelDeltaY: -120,
     });
-    const normal = await wheel({ deltaX: 15, deltaY: 25, deltaMode: 0 });
-    await page.evaluate(
-      (initial) => window.measurementNavigation.restore(initial),
-      initial,
-    );
-    await page.evaluate(() =>
-      window.measurementNavigation.configure({ reverseWheelZoom: true }),
-    );
-    const reversed = await wheel({ deltaX: 15, deltaY: 25, deltaMode: 0 });
-    check(
-      close(normal.position, reversed.position) &&
-        close(normal.target, reversed.target),
-      "Reverse wheel option does not reverse explicit trackpad panning",
-    );
-    const zoomInitial = await reset(false, orthographic, {
-      navigationStyle: "rhino",
-    });
-    const dragNormal = await drag("right", ["Control"]);
-    await page.evaluate(
-      (initial) => window.measurementNavigation.restore(initial),
-      zoomInitial,
-    );
-    await page.evaluate(() =>
-      window.measurementNavigation.configure({ reverseWheelZoom: true }),
-    );
-    await wheel({ deltaX: 0, deltaY: 7, deltaMode: 0 });
-    await page.evaluate(
-      (initial) => window.measurementNavigation.restore(initial),
-      zoomInitial,
-    );
-    const dragReversed = await drag("right", ["Control"]);
-    check(
-      Math.abs(
-        zoomChange(zoomInitial, dragNormal) -
-          zoomChange(zoomInitial, dragReversed),
-      ) < 1e-6,
-      "Reversed wheel followed by Ctrl-right drag retains normal drag-zoom direction",
-    );
-  }
-  // Changing projection recreates OrbitControls; model replacement must also retain options.
-  for (const binding of referenceBindings) {
-    await reset(false, false, {
-      navigationStyle: binding.style,
-      reverseWheelZoom: true,
-    });
-    const projected = await page.evaluate(() => {
-      const f = window.measurementNavigation;
-      f.viewer.setProjection(true);
-      return f.snapshot();
-    });
-    assertAction(
-      projected,
-      await drag("middle"),
-      binding.middle[0],
-      `${binding.style}: projection recreation retains middle binding`,
-    );
-    const wheelBefore = await state(),
-      wheelAfter = await wheel({ deltaY: 7, deltaX: 0, deltaMode: 0 });
-    check(
-      zoomChange(wheelBefore, wheelAfter) > 0,
-      `${binding.style}: projection recreation retains reversed wheel`,
-    );
-    const twoD = await page.evaluate(() => {
-      return window.measurementNavigation.replaceModel(true);
-    });
-    assertAction(
-      twoD,
-      await drag("right"),
-      binding.right[0] === "orbit" ? "pan" : binding.right[0],
-      `${binding.style}: 2D model replacement preserves rotation lock and binding`,
-    );
-    const threeD = await page.evaluate(() => {
-      return window.measurementNavigation.replaceModel(false);
-    });
-    assertAction(
-      threeD,
-      await drag("right"),
-      binding.right[0],
-      `${binding.style}: 3D model replacement restores orbit policy`,
-    );
-  }
+  check(
+    zoomChange(wheelBefore, wheelAfter) < 0,
+    "Projection recreation retains discrete-wheel zoom",
+  );
+  const twoD = await page.evaluate(() =>
+    window.measurementNavigation.replaceModel(true),
+  );
+  assertAction(
+    twoD,
+    await drag("right"),
+    "pan",
+    "2D replacement locks right drag to pan",
+  );
+  const threeD = await page.evaluate(() =>
+    window.measurementNavigation.replaceModel(false),
+  );
+  assertAction(
+    threeD,
+    await drag("right"),
+    "orbit",
+    "3D replacement restores right-button orbit",
+  );
   const cdp = await page.context().newCDPSession(page);
   const touch = async (start, end, type = "pan") => {
     const points = (values) =>
@@ -598,7 +615,7 @@ try {
     placements.every(Boolean),
     "Each axis label retains its projected segment midpoint anchor",
   );
-  await drag("right", ["Shift"]);
+  await drag("middle", ["Shift"]);
   await wheel({ deltaX: 0, deltaY: -7, deltaMode: 0, ctrlKey: true });
   const navigatedAxes = await page.evaluate(() => {
     const v = window.measurementNavigation.viewer;

@@ -42,6 +42,10 @@ document.addEventListener(
       deltaX: event.deltaX,
       deltaY: event.deltaY,
       deltaMode: event.deltaMode,
+      ctrlKey: event.ctrlKey,
+      wheelDeltaX: event.wheelDeltaX,
+      wheelDeltaY: event.wheelDeltaY,
+      devicePixelRatio: window.devicePixelRatio,
     };
   },
   true,
@@ -72,7 +76,7 @@ const reset = (is2D = false, orthographic = false, options = {}) => {
   viewer.setProjection(orthographic);
   viewer.preset(is2D ? "top" : "iso");
   configure({
-    navigation: "mouse",
+    navigation: "auto",
     navigationStyle: "onshape",
     reverseWheelZoom: false,
     grid: false,

@@ -577,27 +577,29 @@ test('recent files return after closing a document and reopen without retaining 
   expect(chooserOpened, 'Earlier recent survives opening another model').toBe(false);
 });
 
-test('navigation input and CAD preset persist without confusing mouse wheel and trackpad', async ({page}) => {
-  await page.evaluate(() => localStorage.setItem('shenzhen-preferences', JSON.stringify({navigation:'trackpad',navigationVersion:2})));
+test('fixed view controls replace old preset and device settings after reload', async ({page,isMobile}) => {
+  await page.evaluate(() => localStorage.setItem('shenzhen-preferences', JSON.stringify({navigation:'trackpad',navigationVersion:3,navigationStyle:'solidworks',reverseWheelZoom:true})));
   await page.reload();
   await page.getByRole('button', {name:'Settings',exact:true}).click();
-  const input = page.getByLabel('Input device', {exact:true});
-  const style = page.getByLabel('Navigation style', {exact:false});
-  await expect(input).toHaveValue('trackpad');
-  await expect(style).toHaveValue('onshape');
-  await expect(page.getByLabel('Reverse scroll zoom')).toBeDisabled();
-  await input.selectOption('mouse');
-  await style.selectOption('solidworks');
-  await page.getByLabel('Reverse scroll zoom').check();
+  await expect(page.getByLabel('Input device', {exact:true})).toHaveCount(0);
+  await expect(page.getByLabel('Navigation style', {exact:false})).toHaveCount(0);
+  await expect(page.getByLabel('Reverse scroll zoom')).toHaveCount(0);
+  await expect(page.getByLabel('Navigation detail', {exact:true})).toBeVisible();
   await page.getByRole('button', {name:'Done',exact:true}).click();
-  await page.reload();
-  await page.getByRole('button', {name:'Settings',exact:true}).click();
-  await expect(input).toHaveValue('mouse');
-  await expect(style).toHaveValue('solidworks');
-  await expect(style.locator('option')).toHaveCount(6);
-  await expect(page.getByLabel('Reverse scroll zoom')).toBeChecked();
-  await expect(page.locator('dialog[open]')).toContainText('Ctrl+middle-drag pans');
-  await page.getByRole('button', {name:'Done',exact:true}).click();
+  if (!isMobile) {
+    await page.getByTitle('Help & shortcuts', {exact:true}).click();
+    const help = page.locator('dialog[open]');
+    await expect(help).toContainText('Right-drag around the current view center');
+    await expect(help).toContainText('Left-drag or middle-drag');
+    await expect(help).toContainText('two-finger trackpad swipe');
+    await expect(help).toContainText('Mouse wheel · pinch');
+    await expect(help).not.toContainText('Ctrl+middle-drag');
+    await page.getByTitle('Close help', {exact:true}).click();
+  }
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('shenzhen-preferences') || '{}'))).toMatchObject({navigation:'auto',navigationVersion:4});
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('shenzhen-preferences') || '{}'));
+  expect(saved.navigationStyle).toBeUndefined();
+  expect(saved.reverseWheelZoom).toBeUndefined();
 });
 
 test('viewport shortcuts switch views and do not run inside settings or editable fields', async ({page,isMobile}) => {
