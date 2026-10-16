@@ -2,7 +2,7 @@
 
 ![Anchored comments on the model and in the review inspector](images/review.png)
 
-Open a model and use **Notes → Add note**, or press **N**. Choose a specific point, model feature (face, edge or vertex), or whole part, then select it on the model and write a note. Numbered pins connect each comment to its location. Click a pin or a note's location to focus it. Notes can be edited, resolved, reopened or deleted; the resolved filter keeps completed feedback accessible.
+Open a model and use **Notes → Add note**, or press **C**. Choose a specific point, model feature (face, edge or vertex), or whole part, then select it on the model and write a note. Numbered pins connect each comment to its location. Click a pin or a note's location to focus it. Notes can be edited, resolved, reopened or deleted; the resolved filter keeps completed feedback accessible.
 
 **Share commented project** (or **⌘ / Ctrl S**) creates a `.sz3d` file. On a browser/device supporting file sharing, it opens the system share sheet; otherwise it saves the file. Send this file to a recipient and open it in Shenzhen 3D to continue reviewing. It contains the original model and selected companion files, notes, saved measurements, tessellation quality, source/display units and custom scale. The built-in sample is stored as a reproducible demo reference. Files are processed locally.
 

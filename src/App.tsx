@@ -63,6 +63,16 @@ import {
 } from "./components/DisplaySettings";
 import type { ReviewNote } from "./core/project-file";
 import type { Viewer } from "./core/viewer";
+import type { RecentEntry } from "./core/recent-files";
+import { viewportShortcut } from "./core/viewport-shortcuts";
+import {
+  NAVIGATION_STYLES,
+  DEFAULT_NAVIGATION_STYLE,
+  isNavigationStyle,
+  navigationStyle,
+  navigationGestures,
+  type NavigationStyleId,
+} from "./core/navigation-style";
 import type { RayTracingState } from "./core/ray-tracing-types";
 import { ACCEPT } from "./core/formats";
 import { cad } from "./core/cad-client";
@@ -195,16 +205,23 @@ function App() {
     [scale, setScale] = useState(1),
     [precision, setPrecision] = useState(preferences.current.precision ?? 3);
   const [theme, setTheme] = useState<"dark" | "light">(
-      preferences.current.theme || "dark",
-    ),
-    [navigation, setNavigation] = useState<"auto" | "mouse" | "trackpad">(
-      preferences.current.navigation === "trackpad"
-        ? "trackpad"
-        : preferences.current.navigationVersion === 2 &&
-            preferences.current.navigation === "mouse"
-          ? "mouse"
-          : "auto",
-    );
+    preferences.current.theme || "dark",
+  );
+  const [navigation, setNavigation] = useState<"mouse" | "trackpad">(
+    preferences.current.navigation === "trackpad" ? "trackpad" : "mouse",
+  );
+  const [navigationStyleId, setNavigationStyle] = useState<NavigationStyleId>(
+    isNavigationStyle(preferences.current.navigationStyle)
+      ? preferences.current.navigationStyle
+      : DEFAULT_NAVIGATION_STYLE,
+  );
+  const [reverseWheelZoom, setReverseWheelZoom] = useState(
+    preferences.current.reverseWheelZoom === true,
+  );
+  const gestures = navigationGestures(
+    navigationStyle(navigationStyleId),
+    reverseWheelZoom,
+  );
   const [navigationDetail, setNavigationDetail] = useState<"auto" | "full">(
     preferences.current.navigationDetail === "full" ? "full" : "auto",
   );
@@ -243,27 +260,21 @@ function App() {
     [measuring, setMeasuring] = useState(false);
   const epoch = useRef(0),
     loadEpoch = useRef(0);
-  const recentFiles = useRef(new Map<string, File[]>());
-  const [recent, setRecent] = useState<{ name: string; format: string }[]>(
-    () => {
-      try {
-        const entries = JSON.parse(
-          localStorage.getItem("shenzhen-recent") || "[]",
-        );
-        return Array.isArray(entries)
-          ? entries
-              .filter(
-                (entry) =>
-                  typeof entry?.name === "string" &&
-                  typeof entry?.format === "string",
-              )
-              .slice(0, 6)
-          : [];
-      } catch {
-        return [];
-      }
-    },
-  );
+  const [recent, setRecent] = useState<RecentEntry[]>([]);
+  useEffect(() => {
+    let active = true;
+    void import("./core/recent-files")
+      .then((store) => store.listRecent())
+      .then((entries) => {
+        if (active) setRecent(entries);
+      })
+      .catch(() => {
+        if (active) setError("Recent files could not be restored.");
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
   const number = useCallback(
     (value: number, power = 1) =>
       formatValue(
@@ -293,11 +304,21 @@ function App() {
         precision,
         theme,
         navigation,
-        navigationVersion: 2,
+        navigationVersion: 3,
+        navigationStyle: navigationStyleId,
+        reverseWheelZoom,
         navigationDetail,
       }),
     );
-  }, [unit, precision, theme, navigation, navigationDetail]);
+  }, [
+    unit,
+    precision,
+    theme,
+    navigation,
+    navigationStyleId,
+    reverseWheelZoom,
+    navigationDetail,
+  ]);
   const clear = useCallback(() => {
     epoch.current++;
     setPoints([]);
@@ -349,6 +370,8 @@ function App() {
         hidden,
         theme,
         navigation,
+        navigationStyle: navigationStyleId,
+        reverseWheelZoom,
         navigationDetail,
         ...display,
         rayTracing,
@@ -368,6 +391,8 @@ function App() {
     hidden,
     theme,
     navigation,
+    navigationStyleId,
+    reverseWheelZoom,
     navigationDetail,
     display,
     rayTracing,
@@ -410,7 +435,6 @@ function App() {
   const load = useCallback(
     async (files: File[]) => {
       if (!files.length) return;
-      recentFiles.current.clear();
       const generation = ++loadEpoch.current;
       cad.cancel();
       clear();
@@ -477,19 +501,21 @@ function App() {
           else notify(`Opened project · ${restored.notes.length} notes`);
         }
         const recentName = projectFile?.name ?? model.name;
-        const next = [
-          { name: recentName, format: projectFile ? "sz3d" : model.format },
-          ...recent.filter((r) => r.name !== recentName),
-        ].slice(0, 6);
-        // Keep only a small last-opened file set for instant reopen. Native file
-        // adapters can hold Blob bytes in RAM, so history must not retain assemblies.
-        if (
-          files.reduce((bytes, file) => bytes + file.size, 0) <=
-          32 * 1024 * 1024
-        )
-          recentFiles.current.set(recentName, files);
-        setRecent(next);
-        localStorage.setItem("shenzhen-recent", JSON.stringify(next));
+        void import("./core/recent-files")
+          .then(async (store) => {
+            await store.rememberRecent(
+              files,
+              recentName,
+              projectFile ? "sz3d" : model.format,
+            );
+            setRecent(await store.listRecent());
+          })
+          .catch((failure) => {
+            if (generation === loadEpoch.current)
+              notify(
+                `Opened file. Could not save it to recent files: ${failure instanceof Error ? failure.message : String(failure)}`,
+              );
+          });
         if (window.innerWidth < 900) setLeft(false);
       } catch (e) {
         if (generation === loadEpoch.current)
@@ -498,8 +524,35 @@ function App() {
         if (generation === loadEpoch.current) setLoading("");
       }
     },
-    [quality, clear, install, recent, runtime, ready],
+    [quality, clear, install, runtime, ready],
   );
+  const nativeLoad = useRef(load);
+  nativeLoad.current = load;
+  useEffect(() => {
+    if (!isNative() && !window.shenzhenFiles) return;
+    let canceled = false;
+    let unsubscribe: (() => void) | undefined;
+    void import("./core/native-file-open")
+      .then(async ({ subscribeNativeFiles }) => {
+        if (canceled) return;
+        const stop = await subscribeNativeFiles(
+          (files) => nativeLoad.current(files),
+          (failure) =>
+            setError(
+              failure instanceof Error ? failure.message : String(failure),
+            ),
+        );
+        if (canceled) stop();
+        else unsubscribe = stop;
+      })
+      .catch((failure) => {
+        if (!canceled) setError(String(failure));
+      });
+    return () => {
+      canceled = true;
+      unsubscribe?.();
+    };
+  }, []);
   const open = useCallback(async () => {
     try {
       if (isNative() && !/Android|iPhone|iPad|iPod/.test(navigator.userAgent)) {
@@ -1030,6 +1083,29 @@ function App() {
         (doc?.name || "shenzhen-3d") + ".png",
       );
   };
+  const fitSelection = () => {
+    if (points.length) viewer.current?.fitSelection(points);
+    else if (selectedPart) viewer.current?.fit([selectedPart]);
+  };
+  const normalToSelection = () => {
+    const face = points.find((point) => point.kind === "face");
+    if (!face || !viewer.current?.normalToFace(face))
+      notify("Select a planar face first.");
+  };
+  const hideSelection = (showAll: boolean) => {
+    if (showAll) {
+      setHidden(new Set());
+      return;
+    }
+    const ids = points.length
+      ? points.map((point) => point.partId)
+      : selectedPart
+        ? [selectedPart]
+        : [viewer.current?.getHoveredPartId()].filter(
+            (id): id is string => !!id,
+          );
+    if (ids.length) setHidden((previous) => new Set([...previous, ...ids]));
+  };
   const actions = useRef({
     open,
     clear,
@@ -1037,6 +1113,9 @@ function App() {
     exportMeasurements,
     startNote,
     shareProject,
+    fitSelection,
+    normalToSelection,
+    hideSelection,
   });
   actions.current = {
     open,
@@ -1045,13 +1124,18 @@ function App() {
     exportMeasurements,
     startNote,
     shareProject,
+    fitSelection,
+    normalToSelection,
+    hideSelection,
   };
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       const typing =
         event.target instanceof HTMLInputElement ||
         event.target instanceof HTMLTextAreaElement ||
-        event.target instanceof HTMLSelectElement;
+        event.target instanceof HTMLSelectElement ||
+        (event.target instanceof HTMLElement && event.target.isContentEditable);
+      if (typing || event.defaultPrevented || event.repeat) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
         event.preventDefault();
         void actions.current.open();
@@ -1072,19 +1156,44 @@ function App() {
         );
         return;
       }
-      if (typing) return;
+      if (document.querySelector("dialog[open]")) return;
       if (event.key === "Escape") {
         actions.current.clear();
+        setSelectedPart(undefined);
         return;
       }
-      if (event.key.toLowerCase() === "f") {
-        viewer.current?.fit();
-        event.preventDefault();
+      if (!docRef.current || !viewer.current) {
+        if (event.key === "?") help.current?.showModal();
+        return;
       }
-      if (event.key === "1") viewer.current?.preset("iso");
-      if (event.key === "2") viewer.current?.preset("top");
-      if (event.key === "3") viewer.current?.preset("front");
-      if (event.key === "4") viewer.current?.preset("right");
+      const shortcut = viewportShortcut(event);
+      if (shortcut) {
+        event.preventDefault();
+        switch (shortcut.type) {
+          case "view":
+            viewer.current.preset(shortcut.view);
+            break;
+          case "fit":
+            shortcut.selected
+              ? actions.current.fitSelection()
+              : viewer.current.fit();
+            break;
+          case "normal":
+            actions.current.normalToSelection();
+            break;
+          case "comment":
+            actions.current.startNote("point");
+            break;
+          case "section":
+            setSection((value) => !value);
+            break;
+          case "hide":
+            actions.current.hideSelection(shortcut.showAll);
+            break;
+        }
+        return;
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.key.toLowerCase() === "p") {
         setMode("point");
         actions.current.clear();
@@ -1093,7 +1202,6 @@ function App() {
         setMode("feature");
         actions.current.clear();
       }
-      if (event.key.toLowerCase() === "n") actions.current.startNote("point");
       if (event.key === "?") help.current?.showModal();
       if (event.key === "Delete" || event.key === "Backspace")
         actions.current.clear();
@@ -1108,11 +1216,22 @@ function App() {
               typeof payload === "string" ? payload : payload.action;
             if (action === "open") void actions.current.open();
             if (action === "fit") viewer.current?.fit();
-            if (["isometric", "front", "top", "right"].includes(action))
+            if (
+              [
+                "isometric",
+                "front",
+                "back",
+                "left",
+                "right",
+                "top",
+                "bottom",
+              ].includes(action)
+            )
               viewer.current?.preset(
                 action === "isometric"
                   ? "iso"
-                  : (action as "front" | "top" | "right"),
+                  : (action as
+                      "front" | "back" | "left" | "right" | "top" | "bottom"),
               );
             if (action === "clear") actions.current.clear();
             if (action === "point" || action === "feature") {
@@ -1531,25 +1650,25 @@ function App() {
                 <div className="view-presets">
                   <button
                     onClick={() => viewer.current?.preset("iso")}
-                    title="Isometric · 1"
+                    title="Isometric · Shift 7"
                   >
                     ISO
                   </button>
                   <button
                     onClick={() => viewer.current?.preset("top")}
-                    title="Top · 2"
+                    title="Top · Shift 5"
                   >
                     TOP
                   </button>
                   <button
                     onClick={() => viewer.current?.preset("front")}
-                    title="Front · 3"
+                    title="Front · Shift 1"
                   >
                     FRONT
                   </button>
                   <button
                     onClick={() => viewer.current?.preset("right")}
-                    title="Right · 4"
+                    title="Right · Shift 4"
                   >
                     RIGHT
                   </button>
@@ -1609,16 +1728,27 @@ function App() {
                 {recent.length ? (
                   recent.map((entry) => (
                     <button
-                      key={entry.name}
-                      title={
-                        recentFiles.current.has(entry.name)
-                          ? `Reopen ${entry.name}`
-                          : `Locate ${entry.name} to reopen`
-                      }
+                      key={entry.id}
+                      title={`Reopen ${entry.name}`}
                       onClick={() => {
-                        const files = recentFiles.current.get(entry.name);
-                        if (files) void load(files);
-                        else void open();
+                        const generation = ++loadEpoch.current;
+                        setLoading(`Opening ${entry.name}…`);
+                        setError("");
+                        void import("./core/recent-files")
+                          .then((store) => store.openRecent(entry))
+                          .then((files) => {
+                            if (generation === loadEpoch.current)
+                              return load(files);
+                          })
+                          .catch((failure) => {
+                            if (generation !== loadEpoch.current) return;
+                            setLoading("");
+                            setError(
+                              failure instanceof Error
+                                ? failure.message
+                                : String(failure),
+                            );
+                          });
                       }}
                     >
                       <FileBox size={16} />
@@ -2181,9 +2311,7 @@ function App() {
           <span className="status-navigation">
             {usingNavigationDetail
               ? "Navigation detail · full detail when still"
-              : navigation !== "mouse"
-                ? "Two-finger pan · pinch zoom"
-                : "Left-drag orbit · middle/right-drag pan · scroll zoom"}
+              : `${navigationStyle(navigationStyleId).label} · ${navigation === "trackpad" ? "two-finger pan · pinch zoom" : "scroll zoom"}`}
           </span>
         )}
         {doc && (
@@ -2248,20 +2376,49 @@ function App() {
             <h3>Navigation</h3>
             <dl>
               <dt>Orbit</dt>
-              <dd>Left drag / one finger</dd>
+              <dd>{gestures.orbit.join(" · ")} · one finger</dd>
               <dt>Pan</dt>
-              <dd>Middle or right drag / two fingers</dd>
+              <dd>
+                {gestures.pan.join(" · ")} · two-finger touch
+                {navigation === "trackpad" ? " / trackpad swipe" : ""}
+              </dd>
               <dt>Zoom</dt>
-              <dd>Scroll / pinch</dd>
-              <dt>Set orbit center</dt>
-              <dd>Double-click a surface</dd>
+              <dd>
+                {[
+                  ...gestures.zoom.filter(
+                    (gesture) =>
+                      navigation !== "trackpad" ||
+                      !gesture.startsWith("Scroll"),
+                  ),
+                  "Pinch",
+                ].join(" · ")}
+              </dd>
               <dt>Fit model</dt>
               <dd>
                 <kbd>F</kbd>
               </dd>
+              <dt>Fit selection</dt>
+              <dd>
+                <kbd>Shift F</kbd>
+              </dd>
               <dt>Standard views</dt>
               <dd>
-                <kbd>1</kbd>–<kbd>4</kbd>
+                <kbd>Shift 1</kbd>–<kbd>Shift 7</kbd>
+                <small className="shortcut-detail">
+                  Front, back, left, right, top, bottom, isometric
+                </small>
+              </dd>
+              <dt>Normal to face</dt>
+              <dd>
+                <kbd>N</kbd> · repeat to flip
+              </dd>
+              <dt>Section</dt>
+              <dd>
+                <kbd>Shift X</kbd>
+              </dd>
+              <dt>Hide selection / show all</dt>
+              <dd>
+                <kbd>Y</kbd> / <kbd>Shift Y</kbd>
               </dd>
             </dl>
           </div>
@@ -2292,7 +2449,7 @@ function App() {
           </div>
         </div>
         <p className="help-note">
-          Use <kbd>N</kbd> or the Notes tab to attach a comment to a point,
+          Use <kbd>C</kbd> or the Notes tab to attach a comment to a point,
           feature or part. <kbd>⌘ / Ctrl S</kbd> shares a project containing the
           original model, notes and saved measurements. Open that .sz3d file to
           continue the review.
@@ -2486,22 +2643,48 @@ function App() {
           </div>
         </label>
         <label>
-          Navigation
+          Input device
           <select
+            aria-label="Input device"
             value={navigation}
-            onChange={(e) =>
-              setNavigation(e.target.value as "auto" | "mouse" | "trackpad")
+            onChange={(event) =>
+              setNavigation(event.target.value as "mouse" | "trackpad")
             }
           >
-            <option value="auto">
-              Automatic · trackpad pans, mouse wheel zooms
-            </option>
-            <option value="mouse">Mouse · wheel zooms</option>
+            <option value="mouse">Mouse · wheel zoom</option>
             <option value="trackpad">
-              Trackpad · two fingers pan, pinch zooms
+              Trackpad · two-finger pan, pinch zoom
             </option>
           </select>
         </label>
+        <label>
+          Navigation style
+          <select
+            value={navigationStyleId}
+            onChange={(event) => {
+              if (isNavigationStyle(event.target.value))
+                setNavigationStyle(event.target.value);
+            }}
+          >
+            {NAVIGATION_STYLES.map((style) => (
+              <option key={style.id} value={style.id}>
+                {style.label}
+              </option>
+            ))}
+          </select>
+          <small>{navigationStyle(navigationStyleId).summary}</small>
+        </label>
+        <div className="navigation-input-toggle">
+          <label>
+            Reverse scroll zoom
+            <input
+              type="checkbox"
+              checked={reverseWheelZoom}
+              disabled={navigation === "trackpad"}
+              onChange={(event) => setReverseWheelZoom(event.target.checked)}
+            />
+          </label>
+        </div>
         <label>
           Navigation detail
           <select

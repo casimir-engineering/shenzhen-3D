@@ -126,7 +126,7 @@ async function showInspector(page: Page) {
 // This avoids assumptions about STEP placement, camera fit, tessellation or viewport size.
 async function geometryLocations(page: Page) {
   await closeInspector(page);
-  await page.getByTitle('Top · 2', {exact: true}).click();
+  await page.getByTitle('Top · Shift 5', {exact: true}).click();
   await page.getByRole('button', {name: 'Fit model', exact: true}).click();
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   // Capture the composited canvas: its WebGL drawing buffer is discarded after
@@ -291,7 +291,7 @@ test('desktop section, orthographic projection, display tools and PNG export', a
   await expect(page.locator('.model-badge')).toContainText('4 parts');
   await page.getByRole('button', {name: 'Perspective', exact: true}).click();
   await expect(page.getByRole('button', {name: 'Orthographic', exact: true})).toBeVisible();
-  await page.getByTitle('Top · 2', {exact: true}).click();
+  await page.getByTitle('Top · Shift 5', {exact: true}).click();
   await page.getByRole('button', {name: 'Show edges', exact: true}).click();
   await expect(page.getByRole('button', {name: 'Show edges', exact: true})).toHaveAttribute('aria-pressed', 'true');
   await page.getByLabel('Explode assembly', {exact: true}).fill('0.25');
@@ -562,4 +562,106 @@ test('recent files return after closing a document and reopen without retaining 
   await expect(page.locator('.viewport-canvas canvas')).toHaveCount(0);
   const resources = await page.evaluate(() => performance.getEntriesByType('resource').map(item=>item.name));
   expect(resources.some(name=>/(?:model-runtime|three\.core)[.-]/.test(name))).toBe(false);
+  let chooserOpened = false;
+  page.on('filechooser', () => { chooserOpened = true; });
+  await recent.getByRole('button',{name:/recent-part.stl/}).click();
+  await expect(page.locator('.model-badge')).toContainText('1 part');
+  expect(chooserOpened, 'Recent file reopens after reload without a chooser').toBe(false);
+  await page.locator('input[type=file]').setInputFiles({name:'second-part.stl',mimeType:'model/stl',buffer:triangle});
+  await expect(page.locator('header')).toContainText('second-part.stl');
+  await page.getByRole('button',{name:'Close document',exact:true}).click();
+  await expect(recent.getByRole('button',{name:/second-part.stl/})).toBeVisible();
+  await recent.getByRole('button',{name:/recent-part.stl/}).click();
+  await expect(page.locator('header')).toContainText('recent-part.stl');
+  await expect(page.locator('.model-badge')).toContainText('1 part');
+  expect(chooserOpened, 'Earlier recent survives opening another model').toBe(false);
+});
+
+test('navigation input and CAD preset persist without confusing mouse wheel and trackpad', async ({page}) => {
+  await page.evaluate(() => localStorage.setItem('shenzhen-preferences', JSON.stringify({navigation:'trackpad',navigationVersion:2})));
+  await page.reload();
+  await page.getByRole('button', {name:'Settings',exact:true}).click();
+  const input = page.getByLabel('Input device', {exact:true});
+  const style = page.getByLabel('Navigation style', {exact:false});
+  await expect(input).toHaveValue('trackpad');
+  await expect(style).toHaveValue('onshape');
+  await expect(page.getByLabel('Reverse scroll zoom')).toBeDisabled();
+  await input.selectOption('mouse');
+  await style.selectOption('solidworks');
+  await page.getByLabel('Reverse scroll zoom').check();
+  await page.getByRole('button', {name:'Done',exact:true}).click();
+  await page.reload();
+  await page.getByRole('button', {name:'Settings',exact:true}).click();
+  await expect(input).toHaveValue('mouse');
+  await expect(style).toHaveValue('solidworks');
+  await expect(style.locator('option')).toHaveCount(6);
+  await expect(page.getByLabel('Reverse scroll zoom')).toBeChecked();
+  await expect(page.locator('dialog[open]')).toContainText('Ctrl+middle-drag pans');
+  await page.getByRole('button', {name:'Done',exact:true}).click();
+});
+
+test('viewport shortcuts switch views and do not run inside settings or editable fields', async ({page,isMobile}) => {
+  test.skip(isMobile, 'Physical keyboard regression');
+  await page.getByRole('button', {name:'Sample model',exact:true}).click();
+  await expect(page.locator('.model-badge')).toContainText('4 parts');
+  const canvas = page.locator('.viewport-canvas canvas');
+  await page.getByTitle('Front · Shift 1', {exact:true}).click();
+  const front = await canvas.screenshot();
+  const compareFront = async () => {
+    const current = await canvas.screenshot();
+    return page.evaluate(async ({a,b}) => {
+      const pixels = async (data:string) => {
+        const image = new Image(); image.src = 'data:image/png;base64,' + data; await image.decode();
+        const surface = document.createElement('canvas'); surface.width=image.width; surface.height=image.height;
+        const context = surface.getContext('2d')!; context.drawImage(image,0,0);
+        return context.getImageData(0,0,image.width,image.height).data;
+      };
+      const [before,after]=await Promise.all([pixels(a),pixels(b)]); let changed=0;
+      for(let i=0;i<before.length;i+=4) if(Math.max(...[0,1,2].map(channel=>Math.abs(before[i+channel]-after[i+channel])))>20) changed++;
+      return changed/(before.length/4);
+    }, {a:front.toString('base64'),b:current.toString('base64')});
+  };
+  await page.keyboard.press('Shift+Digit5');
+  const top = await canvas.screenshot();
+  expect(top.equals(front)).toBe(false);
+  await page.keyboard.press('Shift+Digit1');
+  await expect.poll(compareFront).toBeLessThan(0.003);
+  await page.getByRole('button', {name:'Settings',exact:true}).click();
+  await page.keyboard.press('Shift+Digit5');
+  await page.getByRole('button', {name:'Done',exact:true}).click();
+  await expect.poll(compareFront).toBeLessThan(0.003);
+  const search = page.getByRole('textbox', {name:'Search assembly'});
+  await search.focus();
+  await page.keyboard.press('Shift+Digit5');
+  await search.fill('');
+  await search.blur();
+  await expect.poll(compareFront).toBeLessThan(0.003);
+  await page.keyboard.press('n');
+  await expect(page.locator('.toast')).toContainText('Select a planar face first');
+});
+
+test('a delayed recent-file read cannot replace a newer file open', async ({page}) => {
+  await page.addInitScript(() => {
+    const state = window as typeof window & { releaseOldRecent?: () => void };
+    const entry = {id:'11111111-1111-4111-8111-111111111111',name:'older.stl',format:'stl',openedAt:1,fileCount:1,totalBytes:100,storage:'native' as const};
+    window.shenzhenRecentFiles = {
+      list: async () => [entry], remember: async () => null, remove: async () => {}, touch: async () => entry,
+      open: async () => {
+        await new Promise<void>(resolve => { state.releaseOldRecent = resolve; });
+        return [{name:'older.stl',lastModified:1,bytes:new TextEncoder().encode('solid old\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid old\n')}];
+      },
+    };
+  });
+  await page.reload();
+  await page.getByRole('region',{name:'Recent files'}).getByRole('button',{name:/older.stl/}).click();
+  await page.waitForFunction(() => Boolean((window as typeof window & {releaseOldRecent?:()=>void}).releaseOldRecent));
+  const triangle = Buffer.from('solid new\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 2 0 0\nvertex 0 2 0\nendloop\nendfacet\nendsolid new\n');
+  await page.locator('input[type=file]').setInputFiles({name:'newer.stl',mimeType:'model/stl',buffer:triangle});
+  await expect(page.locator('header')).toContainText('newer.stl');
+  await page.evaluate(async () => {
+    (window as typeof window & {releaseOldRecent?:()=>void}).releaseOldRecent!();
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  });
+  await expect(page.locator('header')).toContainText('newer.stl');
+  await expect(page.locator('.model-badge')).toContainText('1 part');
 });

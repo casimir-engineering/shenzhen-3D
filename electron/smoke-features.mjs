@@ -11,7 +11,7 @@ async function closeInspector(page) {
 // discards the WebGL drawing buffer after presentation.
 async function surfacePicks(page) {
   await closeInspector(page);
-  await page.getByTitle('Top · 2', { exact: true }).click();
+  await page.getByTitle('Top · Shift 5', { exact: true }).click();
   await page.getByRole('button', { name: 'Fit model', exact: true }).click();
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const canvas = page.locator('.viewport-canvas > canvas').first();

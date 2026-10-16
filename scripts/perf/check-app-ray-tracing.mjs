@@ -16,7 +16,7 @@ try {
   if (!hardware || hardware.fallback || /software|swiftshader/i.test(JSON.stringify(hardware))) throw new Error('Hardware WebGPU required');
   await page.getByRole('button', {name: 'Sample model', exact: true}).click();
   await expect(page.locator('.model-badge')).toContainText('4 parts');
-  await page.getByTitle('Top · 2', {exact: true}).click();
+  await page.getByTitle('Top · Shift 5', {exact: true}).click();
   await page.getByRole('button', {name: 'Fit model', exact: true}).click();
   const close = page.getByRole('button', {name: 'Close measurements', exact: true});
   if (await close.isVisible()) await close.click();

@@ -1,3 +1,4 @@
+mod native_open;
 #[cfg(desktop)]
 use tauri::{Emitter, Manager};
 
@@ -10,10 +11,13 @@ fn desktop_menu(app: &tauri::App) -> tauri::Result<()> {
     let new = item("new-window", "New Window", "CmdOrCtrl+N")?;
     let export = item("export", "Export Measurements…", "CmdOrCtrl+Shift+E")?;
     let fit = item("fit", "Fit Model", "CmdOrCtrl+0")?;
-    let iso = item("isometric", "Isometric View", "CmdOrCtrl+1")?;
-    let front = item("front", "Front View", "CmdOrCtrl+3")?;
-    let top = item("top", "Top View", "CmdOrCtrl+2")?;
-    let right = item("right", "Right View", "CmdOrCtrl+4")?;
+    let iso = item("isometric", "Isometric View", "Shift+7")?;
+    let front = item("front", "Front View", "Shift+1")?;
+    let top = item("top", "Top View", "Shift+5")?;
+    let right = item("right", "Right View", "Shift+4")?;
+    let back = item("back", "Back View", "Shift+2")?;
+    let left = item("left", "Left View", "Shift+3")?;
+    let bottom = item("bottom", "Bottom View", "Shift+6")?;
     let clear = item("clear", "Clear Measurements", "CmdOrCtrl+Backspace")?;
     let point = item("point", "Point Measurement", "CmdOrCtrl+Shift+P")?;
     let feature = item("feature", "Feature Measurement", "CmdOrCtrl+Shift+F")?;
@@ -60,8 +64,11 @@ fn desktop_menu(app: &tauri::App) -> tauri::Result<()> {
             &P::separator(app)?,
             &iso,
             &front,
-            &top,
+            &back,
+            &left,
             &right,
+            &top,
+            &bottom,
             &P::separator(app)?,
             &P::fullscreen(app, None)?,
         ],
@@ -151,6 +158,10 @@ fn desktop_menu(app: &tauri::App) -> tauri::Result<()> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
+        .manage(native_open::NativeOpenFiles::default())
+        .invoke_handler(tauri::generate_handler![
+            native_open::take_native_open_files
+        ])
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init());
     #[cfg(desktop)]
@@ -167,8 +178,27 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            #[cfg(desktop)]
+            native_open::queue(
+                _app.handle(),
+                std::env::args_os()
+                    .skip(1)
+                    .map(std::path::PathBuf::from)
+                    .collect(),
+            );
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("Could not start Shenzhen 3D");
+        .build(tauri::generate_context!())
+        .expect("Could not start Shenzhen 3D")
+        .run(|_app, _event| {
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            if let tauri::RunEvent::Opened { urls } = _event {
+                native_open::queue(
+                    _app,
+                    urls.into_iter()
+                        .filter_map(|url| url.to_file_path().ok())
+                        .collect(),
+                );
+            }
+        });
 }

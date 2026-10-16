@@ -1427,8 +1427,17 @@ kbd {
 }
 .help-columns dl {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: minmax(70px, 0.7fr) minmax(0, 1.3fr);
   gap: 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.help-columns kbd {
+  white-space: nowrap;
+}
+.shortcut-detail {
+  display: block;
+  margin-top: 4px;
   font-size: 11px;
 }
 .help-columns dt {
@@ -2154,7 +2163,8 @@ kbd {
   margin-bottom: 12px;
 }
 .lighting-controls label,
-.raytrace-controls label {
+.raytrace-controls label,
+.navigation-input-toggle label {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -2178,6 +2188,7 @@ kbd {
   padding-top: 16px;
   border-top: 1px solid var(--line);
 }
+.navigation-input-toggle input[type="checkbox"],
 .raytrace-controls input[type="checkbox"],
 .lighting-controls input[type="checkbox"] {
   accent-color: var(--jade);
@@ -2260,7 +2271,8 @@ kbd {
   white-space: nowrap;
 }
 .lighting-controls label,
-.raytrace-controls label {
+.raytrace-controls label,
+.navigation-input-toggle label {
   margin: 12px 0;
   color: var(--secondary);
   font-size: 12px;
