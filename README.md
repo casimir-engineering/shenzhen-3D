@@ -2,7 +2,7 @@
 
 A CAD, mesh and drawing viewer for inspecting assemblies and taking engineering measurements. One React/Three.js interface runs in the browser/PWA, a Chromium desktop performance shell, and lightweight Tauri desktop/mobile shells. Model files are processed on the device.
 
-[Mac 0.1.5 release notes](docs/MAC-0.1.5.md) · [All-platform 0.1.2 packages](https://github.com/casimir-engineering/shenzhen-3D/releases/tag/preview-0.1.2) · [Platform delivery and validation](docs/DELIVERY.md)
+[Mac 0.1.6 release notes](docs/MAC-0.1.6.md) · [All-platform 0.1.2 packages](https://github.com/casimir-engineering/shenzhen-3D/releases/tag/preview-0.1.2) · [Platform delivery and validation](docs/DELIVERY.md)
 
 ![Shenzhen 3D workbench measuring an 80 mm bracket](docs/images/workbench.png)
 

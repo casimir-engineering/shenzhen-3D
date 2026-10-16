@@ -186,22 +186,10 @@ export default function UpdatesDialog({ onClose }: { onClose: () => void }) {
             </summary>
             <label>
               Release repository
-              <select
-                value={state.repository}
-                disabled={locked}
-                onChange={(e) =>
-                  void run(() =>
-                    api.configure({
-                      repository: e.target.value as UpdateState["repository"],
-                    }),
-                  )
-                }
-              >
-                <option value="casimir-engineering">
-                  casimir-engineering / shenzhen-3D
-                </option>
-                <option value="mirror-org">mirror-org / shenzhen-3D</option>
-              </select>
+              <input
+                readOnly
+                value={`${state.repository} / shenzhen-3D`}
+              />
             </label>
             {state.connected ? (
               <p className="updates-auth-row">
@@ -216,7 +204,7 @@ export default function UpdatesDialog({ onClose }: { onClose: () => void }) {
             ) : (
               <>
                 <p className="muted">
-                  Requires access to the selected private repository.
+                  Requires access to this private repository.
                 </p>
                 <button
                   className="button"
