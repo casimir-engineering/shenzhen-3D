@@ -53,6 +53,17 @@ Apple's notarization log identifies the submitted archive **before** stapling/re
 
 ## Isolated native update installation
 
+For an upgrade from a released app that already includes the updater, copy that signed app into a new fixture directory. Keep the original untouched:
+
+```sh
+fixture_run="$PWD/artifacts/updater-e2e/<new-fixture-run>"
+mkdir -p "$fixture_run/fixture/mac-arm64"
+ditto "$PWD/artifacts/releases-0.1.4/Shenzhen 3D.app" \
+  "$fixture_run/fixture/mac-arm64/Shenzhen 3D.app"
+```
+
+The install report reads the fixture's signed build provenance. A released-app copy is identified separately from a synthetic version override.
+
 `electron/prepare-update-fixture.mjs` reproduces the verified 0.1.4 test fixture: it copies frozen 0.1.4 staging, overrides only the copied package/lock/provenance to 0.1.3, and produces a signed `--dir --publish never` app with the same bundle ID. It does not change source versions or the released app.
 
 ```sh

@@ -3,6 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { _electron as electron, expect } from "@playwright/test";
 const root = process.cwd();
 const option = (name) =>
@@ -104,6 +105,13 @@ for (const app of [fixture, reference]) {
 }
 const sourceVersion = plist(fixture).CFBundleShortVersionString,
   targetVersion = plist(reference).CFBundleShortVersionString;
+const fixtureProvenance = JSON.parse(
+  createRequire(import.meta.url)("@electron/asar").extractFile(
+    path.join(fixture, "Contents/Resources/app.asar"),
+    "build-info.json",
+  ),
+);
+const syntheticFixture = !!fixtureProvenance.fixture;
 if (
   !/^\d+\.\d+\.\d+$/.test(sourceVersion) ||
   !/^\d+\.\d+\.\d+$/.test(targetVersion) ||
@@ -118,9 +126,15 @@ const evidence = {
   profile,
   sourceVersion,
   targetVersion,
+  fixtureKind: syntheticFixture
+    ? "synthetic-version-override"
+    : "released-app-copy",
+  fixtureSourceCommit: fixtureProvenance.sourceCommit,
   checks: [],
   limitations: [
-    "Same final updater code with a synthetic older package version",
+    ...(syntheticFixture
+      ? ["Same final updater code with a synthetic older package version"]
+      : []),
     "Install dialog response is programmatically confirmed; native dialog rendering is not tested",
     "Real Squirrel signed replacement followed by manual launch with temporary profile; automatic relaunch is disabled to preserve isolation",
   ],
