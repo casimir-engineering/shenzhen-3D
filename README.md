@@ -2,7 +2,7 @@
 
 A CAD, mesh and drawing viewer for inspecting assemblies and taking engineering measurements. One React/Three.js interface runs in the browser/PWA, a Chromium desktop performance shell, and lightweight Tauri desktop/mobile shells. Model files are processed on the device.
 
-[Mac 0.1.7 release notes](docs/MAC-0.1.7.md) · [Platform delivery and validation](docs/DELIVERY.md)
+[Mac 0.1.8 release notes](docs/MAC-0.1.8.md) · [Platform delivery and validation](docs/DELIVERY.md)
 
 Download installers from this repository’s **Releases** page.
 
@@ -17,7 +17,7 @@ Open STEP, IGES or BREP for CAD topology and exact supported feature queries; op
 - Source-unit overrides, custom measurement scale, display units and precision; saved session measurements exported as CSV/JSON and viewport screenshots as PNG.
 - Comments attached to parts, points, edges, faces or vertices; edit, resolve and share portable `.sz3d` files containing the model and saved measurements. [Review files](docs/REVIEW.md).
 - Shaded, shaded-with-edges, wireframe and dashed hidden-line views; movable key light and uniform fill. Optional progressive WebGPU ray tracing with raster navigation and measurement overlays. [Rendering and device limits](docs/RENDERING.md).
-- Desktop/mobile controls, six CAD navigation presets, separate mouse/trackpad input settings, and dark/light themes. [Controls](docs/CONTROLS.md).
+- Automatic controls: left/middle drag pans, right-drag orbits around the view center, two-finger trackpad swipes pan, and pinch/mouse wheel zoom. Dark/light themes. [Controls and browser limits](docs/CONTROLS.md).
 - Lightweight startup: the welcome screen opens before loading the 3D engine. Geometry tools load on first import; project archives and ray tracing load when needed. [Startup measurements](docs/STARTUP.md).
 - GPU instancing and merged material draws, spatially indexed picking, and automatic navigation detail for large assemblies. Full geometry returns when still; measurements always use the original model.
 

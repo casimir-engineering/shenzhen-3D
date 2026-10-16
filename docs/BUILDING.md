@@ -29,7 +29,23 @@ npm run package:electron:mac -- --release-owner="<github-owner>"
 npm run test:electron
 ```
 
-The package script always builds the frontend first, then creates a Developer ID signed ARM64 app, Retina DMG and updater ZIP/feed when the configured signing identity is available. Timestamped output folders in `artifacts/electron/` include `build-info.json` with the source commit, SHA-256 hashes of every frontend/runtime file and the verified updater dependency inventory. Packaging checks the actual ASAR dependency closure before signing and validates the updater feed against the final ZIP/DMG bytes. Pass `-- --release-owner=<github-owner>` with this repository’s owner. The package updates only from that repository. See [update packaging](UPDATES.md) and [Mac 0.1.6](MAC-0.1.6.md) for current delivery evidence. The DMG includes a drag-to-Applications shortcut and 1×/2× artwork; regenerate the committed artwork from its editable SVG with `npm run build:dmg:artwork`. Signing does not establish notarization. Electron and Chromium notices are included with the bundle. See [measured renderer performance](PERFORMANCE.md) for browser, Electron and system WebKit evidence. The Tauri builds below remain available as lightweight desktop and mobile packages.
+The package script always builds the frontend first, then creates a Developer ID signed ARM64 app, Retina DMG and updater ZIP/feed when the configured signing identity is available. Timestamped output folders in `artifacts/electron/` include `build-info.json` with the source commit, frontend/runtime file hashes and the verified updater dependency inventory. Packaging checks the actual ASAR dependency closure before signing and validates the updater feed against the final ZIP/DMG bytes. Pass `-- --release-owner=<github-owner>` with this repository’s owner. The package updates only from that repository. See [update packaging](UPDATES.md) and [Mac 0.1.8](MAC-0.1.8.md) for current verification and delivery status. The DMG includes a drag-to-Applications shortcut and 1×/2× artwork; regenerate the committed artwork from its editable SVG with `npm run build:dmg:artwork`. Signing does not establish notarization. Electron and Chromium notices are included with the bundle. See [measured renderer performance](PERFORMANCE.md) for browser, Electron and system WebKit evidence. The Tauri builds below remain available as lightweight desktop and mobile packages.
+
+### Native macOS scroll source
+
+Mac packaging compiles `electron/native/scroll-source.mm` with Xcode's `clang++` and the AppKit framework. Install the Xcode command-line tools and make Node N-API headers available. The build searches the current Node header cache and common installed include directories; set `SHENZHEN_NODE_HEADERS` to the directory containing `node_api.h` when needed.
+
+```sh
+node electron/build-native-scroll.mjs
+node electron/scroll-source-smoke.mjs
+node electron/scroll-source-smoke.mjs --app="<signed-output>/mac-arm64/Shenzhen 3D.app" --report="<signed-output>/native-scroll-source-report.json"
+```
+
+On a fresh checkout, run `node electron/build-native-scroll.mjs` before `npm run electron:dev`. Packaging builds the addon automatically.
+
+The standalone build writes an ad-hoc-signed development addon under `artifacts/native-scroll/<architecture>/`. The package script builds its own ARM64 addon, stages it outside ASAR, and signs it with the app. `build-info.json.nativeRuntimeFiles` records a canonical Mach-O code hash that excludes signature changes. Package and notarization checks require that hash, unpacking and the expected addon inventory; missing, changed, packed or extra native files are rejected.
+
+The smoke checks production addon loading/startup, exports, clock conversion, ring classification, window/timestamp isolation and IPC bounds. With `--app`, it verifies the signed packaged addon and loads the packaged loader/preload in a separate isolated Electron fixture. This checks addon and IPC behavior, not physical-device input or full packaged-main event delivery. The separate automated wheel result and remaining phased-trackpad limits are described in [Mac 0.1.8](MAC-0.1.8.md).
 
 For desktop development:
 
