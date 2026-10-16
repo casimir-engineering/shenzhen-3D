@@ -1,6 +1,6 @@
 name: shenzhen-3d
 options:
-  bundleIdPrefix: engineering.casimir.shenzhen3d
+  bundleIdPrefix: com.shenzhen3d.viewer
   deploymentTarget:
     iOS: 15.0
 fileGroups: [../../src]
@@ -11,7 +11,7 @@ settingGroups:
   app:
     base:
       PRODUCT_NAME: Shenzhen 3D
-      PRODUCT_BUNDLE_IDENTIFIER: engineering.casimir.shenzhen3d
+      PRODUCT_BUNDLE_IDENTIFIER: com.shenzhen3d.viewer
 targetTemplates:
   app:
     type: application
@@ -58,8 +58,8 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 0.1.2
-        CFBundleVersion: "0.1.2"
+        CFBundleShortVersionString: 0.1.8
+        CFBundleVersion: "0.1.8"
     entitlements:
       path: shenzhen-3d_iOS/shenzhen-3d_iOS.entitlements
     scheme:

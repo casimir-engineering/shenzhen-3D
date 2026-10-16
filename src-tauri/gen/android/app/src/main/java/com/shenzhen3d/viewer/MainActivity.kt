@@ -1,4 +1,4 @@
-package engineering.casimir.shenzhen3d
+package com.shenzhen3d.viewer
 
 import android.graphics.Color
 import android.os.Bundle

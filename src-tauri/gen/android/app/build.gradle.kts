@@ -16,10 +16,10 @@ val tauriProperties = Properties().apply {
 
 android {
     compileSdk = 36
-    namespace = "engineering.casimir.shenzhen3d"
+    namespace = "com.shenzhen3d.viewer"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
-        applicationId = "engineering.casimir.shenzhen3d"
+        applicationId = "com.shenzhen3d.viewer"
         minSdk = 24
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
