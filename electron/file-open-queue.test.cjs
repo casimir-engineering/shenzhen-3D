@@ -22,3 +22,17 @@ test("pending batches have a bounded backlog", () => {
   assert.equal(result.length, 16);
   assert.deepEqual(result[0], ["4"]);
 });
+test("a failed drain can restore other batches without crossing window ownership", () => {
+  const queue = createFileOpenQueue();
+  queue.push(["first.step"], 1);
+  queue.push(["missing.step"], 1);
+  queue.push(["last.step"], 1);
+  queue.push(["background.step"], 2);
+  const taken = queue.take(1, 1);
+  queue.restore(
+    taken.filter((paths) => paths[0] !== "missing.step"),
+    1,
+  );
+  assert.deepEqual(queue.take(2, 1), [["background.step"]]);
+  assert.deepEqual(queue.take(1, 1), [["first.step"], ["last.step"]]);
+});

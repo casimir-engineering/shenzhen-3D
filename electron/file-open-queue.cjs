@@ -6,6 +6,10 @@ function createFileOpenQueue() {
       batches.push({ paths, targetId });
       if (batches.length > 16) batches.shift();
     },
+    restore(paths, targetId) {
+      batches.unshift(...paths.map((files) => ({ paths: files, targetId })));
+      if (batches.length > 16) batches.splice(16);
+    },
     take(senderId, primaryId) {
       const result = [];
       for (let i = 0; i < batches.length;) {

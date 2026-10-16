@@ -147,19 +147,33 @@ ipcMain.handle("shenzhen-open-files", (event) => {
       app.getPath("userData"),
     );
     const batches = [];
-    for (const paths of pendingOpenFiles.take(
+    const selected = pendingOpenFiles.take(
       event.sender.id,
       primaryFileWindowId,
-    )) {
-      const name = path.basename(paths[0]),
-        format = path.extname(name).slice(1).toLowerCase();
-      const grant = await recentFileStore.remember(paths, name, format);
-      batches.push(
-        (await recentFileStore.open(grant.id)).map((file) => ({
-          ...file,
-          recentId: grant.id,
-        })),
-      );
+    );
+    for (let index = 0; index < selected.length; index++) {
+      const paths = selected[index];
+      try {
+        const name = path.basename(paths[0]),
+          format = path.extname(name).slice(1).toLowerCase();
+        const grant = await recentFileStore.remember(paths, name, format);
+        batches.push(
+          (await recentFileStore.open(grant.id)).map((file) => ({
+            ...file,
+            recentId: grant.id,
+          })),
+        );
+      } catch (error) {
+        // The rejected IPC response cannot deliver already-read batches. Preserve
+        // every other intent and notify this window to drain again after the error.
+        pendingOpenFiles.restore(
+          selected.filter((_paths, i) => i !== index),
+          event.sender.id,
+        );
+        if (!event.sender.isDestroyed())
+          event.sender.send("shenzhen-open-files-available");
+        throw error;
+      }
     }
     return batches;
   });
