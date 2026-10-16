@@ -40,75 +40,77 @@ after(async () => {
   await fs.rm(operatorDirectory, { recursive: true, force: true });
 });
 
-test("0.1.6 binary, feed, blockmap and provenance require matching adjacent owner/source metadata", async () => {
-  const directory = await fs.mkdtemp(
-    path.join(os.tmpdir(), "variant-metadata-test-"),
-  );
-  try {
-    for (const name of [
-      "app.dmg",
-      "app.zip",
-      "app.dmg.blockmap",
-      "app.zip.blockmap",
-      "latest-mac.yml",
-      "build-info.json",
-    ]) {
-      const value = {
-        ...input,
-        tag: "preview-0.1.6",
-        name,
-        filename: path.join(directory, name),
-      };
-      await fs.rm(path.join(directory, "build-info.json"), { force: true });
-      await assert.rejects(
-        verifyArtifactMetadata(value),
-        /Adjacent build-info/,
-      );
-      for (const owner of ["fixture-alternate", "fixture-source"]) {
-        const own = { ...value, repo: `${owner}/shenzhen-3D` };
-        await fs.writeFile(
-          path.join(directory, "build-info.json"),
-          JSON.stringify({ releaseOwner: owner, sourceCommit: input.commit }),
-        );
-        await verifyArtifactMetadata(own);
-        const other =
-          owner === "fixture-alternate"
-            ? "fixture-source"
-            : "fixture-alternate";
+for (const tag of ["preview-0.1.6", "preview-0.1.7"])
+  test(`${tag} binary, feed, blockmap and provenance require matching adjacent owner/source metadata`, async () => {
+    const directory = await fs.mkdtemp(
+      path.join(os.tmpdir(), "variant-metadata-test-"),
+    );
+    try {
+      for (const name of [
+        "app.dmg",
+        "app.zip",
+        "app.dmg.blockmap",
+        "app.zip.blockmap",
+        "latest-mac.yml",
+        "build-info.json",
+      ]) {
+        const value = {
+          ...input,
+          tag,
+          name,
+          filename: path.join(directory, name),
+        };
+        await fs.rm(path.join(directory, "build-info.json"), { force: true });
         await assert.rejects(
-          verifyArtifactMetadata({ ...own, repo: `${other}/shenzhen-3D` }),
-          /releaseOwner/,
+          verifyArtifactMetadata(value),
+          /Adjacent build-info/,
         );
+        for (const owner of ["fixture-alternate", "fixture-source"]) {
+          const own = { ...value, repo: `${owner}/shenzhen-3D` };
+          await fs.writeFile(
+            path.join(directory, "build-info.json"),
+            JSON.stringify({ releaseOwner: owner, sourceCommit: input.commit }),
+          );
+          await verifyArtifactMetadata(own);
+          const other =
+            owner === "fixture-alternate"
+              ? "fixture-source"
+              : "fixture-alternate";
+          await assert.rejects(
+            verifyArtifactMetadata({ ...own, repo: `${other}/shenzhen-3D` }),
+            /releaseOwner/,
+          );
+          await assert.rejects(
+            verifyArtifactMetadata({ ...own, commit: "c".repeat(40) }),
+            /sourceCommit/,
+          );
+        }
+        await fs.writeFile(path.join(directory, "build-info.json"), "{}");
+        await assert.rejects(verifyArtifactMetadata(value), /releaseOwner/);
+        await fs.writeFile(path.join(directory, "build-info.json"), "not json");
         await assert.rejects(
-          verifyArtifactMetadata({ ...own, commit: "c".repeat(40) }),
-          /sourceCommit/,
+          verifyArtifactMetadata(value),
+          /Adjacent build-info/,
         );
       }
-      await fs.writeFile(path.join(directory, "build-info.json"), "{}");
-      await assert.rejects(verifyArtifactMetadata(value), /releaseOwner/);
-      await fs.writeFile(path.join(directory, "build-info.json"), "not json");
-      await assert.rejects(
-        verifyArtifactMetadata(value),
-        /Adjacent build-info/,
-      );
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
     }
-  } finally {
-    await fs.rm(directory, { recursive: true, force: true });
-  }
-});
-test("older release schemas and 0.1.6 evidence do not require owner metadata", async () => {
+  });
+test("older release schemas and current preview evidence do not require owner metadata", async () => {
   for (const tag of ["preview-0.1.4", "preview-0.1.5"])
     await verifyArtifactMetadata({
       ...input,
       tag,
       filename: "/missing-folder/app.dmg",
     });
-  await verifyArtifactMetadata({
-    ...input,
-    tag: "preview-0.1.6",
-    name: "runtime-report.json",
-    filename: "/missing-folder/runtime-report.json",
-  });
+  for (const tag of ["preview-0.1.6", "preview-0.1.7"])
+    await verifyArtifactMetadata({
+      ...input,
+      tag,
+      name: "runtime-report.json",
+      filename: "/missing-folder/runtime-report.json",
+    });
 });
 
 test("CLI accepts SHA-256 options and rejects unknown or duplicate options", () => {
@@ -156,9 +158,10 @@ test("delivery is limited to authorized repositories and the exact preview draft
   for (const patch of [
     { repo: "other/repo" },
     { tag: "preview-0.1.3" },
-    { tag: "preview-0.1.7" },
+    { tag: "preview-0.1.8" },
     { tag: "v0.1.5" },
     { tag: "v0.1.6" },
+    { tag: "v0.1.7" },
     { name: "../app.dmg" },
     { sha256: "invalid" },
     { commit: "main" },
@@ -169,7 +172,7 @@ test("delivery is limited to authorized repositories and the exact preview draft
   ])
     assert.throws(() => validateDirectInput({ ...input, ...patch }));
 });
-for (const tag of ["preview-0.1.5", "preview-0.1.6"])
+for (const tag of ["preview-0.1.5", "preview-0.1.6", "preview-0.1.7"])
   test(`${tag} support preserves exact draft, source and repository guards`, () => {
     const next = { ...input, tag };
     for (const repo of [
@@ -305,24 +308,25 @@ async function fixture(runTest, options = {}) {
     await fs.rm(directory, { recursive: true, force: true });
   }
 }
-for (const metadata of [
-  undefined,
-  {},
-  { releaseOwner: "fixture-source", sourceCommit: input.commit },
-  { releaseOwner: "fixture-alternate", sourceCommit: "c".repeat(40) },
-])
-  test(`0.1.6 invalid provenance blocks GitHub access (${metadata === undefined ? "missing" : JSON.stringify(metadata)})`, async () => {
-    await fixture(
-      async ({ value, options, calls }) => {
-        await assert.rejects(
-          uploadDirect(value, options),
-          /build-info|releaseOwner|sourceCommit/,
-        );
-        assert.deepEqual(calls, []);
-      },
-      { input: { tag: "preview-0.1.6" }, metadata },
-    );
-  });
+for (const tag of ["preview-0.1.6", "preview-0.1.7"])
+  for (const metadata of [
+    undefined,
+    {},
+    { releaseOwner: "fixture-source", sourceCommit: input.commit },
+    { releaseOwner: "fixture-alternate", sourceCommit: "c".repeat(40) },
+  ])
+    test(`${tag} invalid provenance blocks GitHub access (${metadata === undefined ? "missing" : JSON.stringify(metadata)})`, async () => {
+      await fixture(
+        async ({ value, options, calls }) => {
+          await assert.rejects(
+            uploadDirect(value, options),
+            /build-info|releaseOwner|sourceCommit/,
+          );
+          assert.deepEqual(calls, []);
+        },
+        { input: { tag }, metadata },
+      );
+    });
 test("matching final skips credentials and curl", async () => {
   await fixture(
     async ({ value, options, calls }) => {

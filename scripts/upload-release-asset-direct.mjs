@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // Direct fallback when release-assembly Actions are unavailable.
 // node scripts/upload-release-asset-direct.mjs --repo=OWNER/shenzhen-3D \
-//   --tag=preview-0.1.6 --commit=SOURCE_SHA --file=FILE --sha256=FILE_SHA \
+//   --tag=preview-0.1.7 --commit=SOURCE_SHA --file=FILE --sha256=FILE_SHA \
 //   [--replace-sha256=OBSOLETE_SHA] [--cleanup-part-count=17]
 // Existing gh auth is sent only through curl's private stdin configuration.
-// 0.1.6 core files require adjacent build-info.json with matching releaseOwner/sourceCommit.
+// Owner-isolated previews require adjacent build-info.json matching releaseOwner/sourceCommit.
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -13,7 +13,12 @@ import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import { hashFile } from "./upload-release-asset.mjs";
 import { assertAuthorizedRepository } from "./upload-release-asset-config.mjs";
-const TAGS = new Set(["preview-0.1.4", "preview-0.1.5", "preview-0.1.6"]);
+const OWNER_METADATA_TAGS = new Set(["preview-0.1.6", "preview-0.1.7"]);
+const TAGS = new Set([
+  "preview-0.1.4",
+  "preview-0.1.5",
+  ...OWNER_METADATA_TAGS,
+]);
 const TRANSFER_TIMEOUT_SECONDS = 900;
 export function validateDirectInput(input) {
   assertAuthorizedRepository(input.repo);
@@ -57,7 +62,7 @@ export function verifyDraft(release, input) {
     );
 }
 export async function verifyArtifactMetadata(input) {
-  if (input.tag !== "preview-0.1.6") return;
+  if (!OWNER_METADATA_TAGS.has(input.tag)) return;
   const core =
     input.name === "build-info.json" ||
     input.name === "latest-mac.yml" ||
@@ -71,7 +76,7 @@ export async function verifyArtifactMetadata(input) {
     metadata = JSON.parse(await fs.readFile(filename, "utf8"));
   } catch {
     throw Error(
-      "Adjacent build-info.json is required for 0.1.6 core artifacts.",
+      "Adjacent build-info.json is required for owner-isolated core artifacts.",
     );
   }
   if (metadata?.releaseOwner !== input.repo.split("/")[0])
