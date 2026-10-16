@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Direct fallback when release-assembly Actions are unavailable.
 // node scripts/upload-release-asset-direct.mjs --repo=OWNER/shenzhen-3D \
-//   --tag=preview-0.1.5 --commit=SOURCE_SHA --file=FILE --sha256=FILE_SHA \
+//   --tag=preview-0.1.6 --commit=SOURCE_SHA --file=FILE --sha256=FILE_SHA \
 //   [--replace-sha256=OBSOLETE_SHA] [--cleanup-part-count=17]
 // Existing gh auth is sent only through curl's private stdin configuration.
 import fs from "node:fs/promises";
@@ -16,7 +16,7 @@ const REPOS = new Set([
   "casimir-engineering/shenzhen-3D",
   "mirror-org/shenzhen-3D",
 ]);
-const TAGS = new Set(["preview-0.1.4", "preview-0.1.5"]);
+const TAGS = new Set(["preview-0.1.4", "preview-0.1.5", "preview-0.1.6"]);
 export function validateDirectInput(input) {
   if (!REPOS.has(input.repo)) throw Error("Repository is not authorized.");
   // Replacement authorization is deliberately limited to the current drafts.
