@@ -48,6 +48,182 @@
     },
     "iOS": {
       "minimumSystemVersion": "15.0"
-    }
+    },
+    "fileAssociations": [
+      {
+        "ext": ["step"],
+        "name": "STEP model",
+        "description": "STEP model",
+        "mimeType": "model/step",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["stp"],
+        "name": "STEP model",
+        "description": "STEP model",
+        "mimeType": "model/step",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["iges"],
+        "name": "IGES model",
+        "description": "IGES model",
+        "mimeType": "model/iges",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["igs"],
+        "name": "IGES model",
+        "description": "IGES model",
+        "mimeType": "model/iges",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["brep"],
+        "name": "Boundary representation model",
+        "description": "Boundary representation model",
+        "mimeType": "application/x-brep",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["brp"],
+        "name": "Boundary representation model",
+        "description": "Boundary representation model",
+        "mimeType": "application/x-brep",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["stl"],
+        "name": "STL mesh",
+        "description": "STL mesh",
+        "mimeType": "model/stl",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["obj"],
+        "name": "OBJ mesh",
+        "description": "OBJ mesh",
+        "mimeType": "model/obj",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["glb"],
+        "name": "Binary glTF model",
+        "description": "Binary glTF model",
+        "mimeType": "model/gltf-binary",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["gltf"],
+        "name": "glTF model",
+        "description": "glTF model",
+        "mimeType": "model/gltf+json",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["3mf"],
+        "name": "3D Manufacturing model",
+        "description": "3D Manufacturing model",
+        "mimeType": "model/3mf",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["ply"],
+        "name": "PLY mesh",
+        "description": "PLY mesh",
+        "mimeType": "application/x-ply",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["off"],
+        "name": "OFF mesh",
+        "description": "OFF mesh",
+        "mimeType": "model/x-off",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["fbx"],
+        "name": "FBX model",
+        "description": "FBX model",
+        "mimeType": "application/x-fbx",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["dae"],
+        "name": "COLLADA model",
+        "description": "COLLADA model",
+        "mimeType": "model/vnd.collada+xml",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["wrl"],
+        "name": "VRML model",
+        "description": "VRML model",
+        "mimeType": "model/vrml",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["vrml"],
+        "name": "VRML model",
+        "description": "VRML model",
+        "mimeType": "model/vrml",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["dxf"],
+        "name": "DXF drawing",
+        "description": "DXF drawing",
+        "mimeType": "image/vnd.dxf",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["dwg"],
+        "name": "DWG drawing",
+        "description": "DWG drawing",
+        "mimeType": "image/vnd.dwg",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["svg"],
+        "name": "SVG drawing",
+        "description": "SVG drawing",
+        "mimeType": "image/svg+xml",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "contentTypes": ["public.svg-image"]
+      },
+      {
+        "ext": ["sz3d"],
+        "name": "Shenzhen 3D project",
+        "description": "Shenzhen 3D project",
+        "mimeType": "application/x-shenzhen3d-project",
+        "role": "Viewer",
+        "rank": "Owner",
+        "contentTypes": ["com.shenzhen3d.project"],
+        "exportedType": {
+          "identifier": "com.shenzhen3d.project",
+          "conformsTo": ["public.zip-archive", "public.data"]
+        }
+      }
+    ]
   }
 }
