@@ -2,8 +2,8 @@ import * as T from 'three';
 import { cad } from './cad-client';
 import { sourceUnit } from './units';
 import type {ModelDocument, GeometryData, Part, TreeNode, Unit, CadResult} from './types';
-export const SUPPORTED=['step','stp','iges','igs','brep','brp','stl','obj','glb','gltf','3mf','ply','off','fbx','dae','wrl','vrml','dxf','dwg','svg'];
-export const ACCEPT=SUPPORTED.map(s=>'.'+s).join(',')+',.mtl,.png,.jpg,.jpeg,.webp,.bin';
+import { SUPPORTED } from './formats';
+export { SUPPORTED, ACCEPT } from './formats';
 const ext=(name:string)=>name.split('.').pop()!.toLowerCase();
 const material=(color:T.ColorRepresentation=0xb8c7cc)=>new T.MeshStandardMaterial({color,roughness:.48,metalness:.12,side:T.DoubleSide});
 export function fromCad(result:CadResult,name:string):ModelDocument {
@@ -23,7 +23,7 @@ export function fromCad(result:CadResult,name:string):ModelDocument {
   return {id:node.id,name:node.name||'Assembly',partIds,children:node.children.map(c=>walk(c,matrix,fullPath))};
  };
  const roots=result.rootNodes!.map(n=>walk(n,new T.Matrix4(),[]));
- return {name,format:ext(name),geometries,parts,roots,unit:'mm',sourceUnit:result.sourceUnit||'Unknown (assumed mm)',warnings:(result.warnings||[]).map(w=>typeof w==='string'?w:JSON.stringify(w)),importMs:0,bytes:0,exactModelId:result.exactModelId,is2D:false};
+ return {name,format:ext(name),geometries,parts,roots,unit:'mm',sourceUnit:result.sourceUnit||'Unknown (assumed mm)',warnings:(result.warnings||[]).map(w=>typeof w==='string'?w:JSON.stringify(w)),importMs:0,bytes:0,exactModelId:result.exactModelId,exactWorkerGeneration:result.exactWorkerGeneration,is2D:false};
 }
 export function fromObject(root:T.Object3D,name:string,unit:Unit='mm',warnings:string[]=[],is2D=false):ModelDocument{
  root.updateMatrixWorld(true);const geometries=new Map<string,GeometryData>(),parts:Part[]=[];
@@ -80,4 +80,4 @@ export async function importFiles(files:File[],quality:string,onProgress:(s:stri
  doc.importMs=performance.now()-start;doc.bytes=file.size;return doc;
 }
 function parseOFF(text:string){const words=text.replace(/#[^\n]*/g,'').trim().split(/\s+/);if(words.shift()!=='OFF')throw new Error('Only plain OFF files are supported.');const count=Number(words.shift()),faces=Number(words.shift());words.shift();if(!Number.isSafeInteger(count)||count<0||count>10000000)throw new Error('Invalid OFF vertex count');const positions=words.splice(0,count*3).map(Number),indices:number[]=[];for(let f=0;f<faces;f++){const n=Number(words.shift());const face=words.splice(0,n).map(Number);for(let i=1;i<n-1;i++)indices.push(face[0],face[i],face[i+1])}const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(positions,3));g.setIndex(indices);g.computeVertexNormals();return new T.Mesh(g,material())}
-export function disposeDocument(doc:ModelDocument){const materials=new Set<T.Material>();const textures=new Set<T.Texture>();for(const g of doc.geometries.values()){g.geometry.dispose();for(const m of g.materials){materials.add(m);for(const value of Object.values(m))if(value instanceof T.Texture)textures.add(value)}}materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());if(doc.exactModelId)void cad.release(doc.exactModelId).catch(()=>{});}
+export function disposeDocument(doc:ModelDocument){const materials=new Set<T.Material>();const textures=new Set<T.Texture>();for(const g of doc.geometries.values()){g.geometry.dispose();for(const m of g.materials){materials.add(m);for(const value of Object.values(m))if(value instanceof T.Texture)textures.add(value)}}materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());if(doc.exactModelId)void cad.release(doc.exactModelId,doc.exactWorkerGeneration).catch(()=>{});}

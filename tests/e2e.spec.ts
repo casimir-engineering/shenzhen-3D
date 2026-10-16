@@ -2,20 +2,112 @@ import {test, expect, type Page, type Download} from '@playwright/test';
 import {resolve} from 'node:path';
 
 const fixture = resolve('fixtures/sample-assembly.step');
+type ErrorAwarePage = Page & {applicationErrors: string[]; expectedApplicationErrors?: RegExp[]};
 
 test.beforeEach(async ({page}) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => {if (message.type() === 'error') errors.push(message.text());});
   await page.goto('/');
-  await expect(page.locator('canvas')).toBeVisible();
-  (page as Page & {applicationErrors: string[]}).applicationErrors = errors;
+  await expect(page.locator('header').getByRole('button', {name: /^Open file/})).toBeEnabled();
+  await expect(page.getByRole('button', {name: 'Explore a sample model', exact: true})).toBeEnabled();
+  await expect(page.locator('.viewport-canvas canvas')).toHaveCount(0);
+  (page as ErrorAwarePage).applicationErrors = errors;
 });
 
 test.afterEach(async ({page}, info) => {
-  const errors = (page as Page & {applicationErrors: string[]}).applicationErrors || [];
+  const errors = (page as ErrorAwarePage).applicationErrors || [];
   await info.attach('application-errors', {body: JSON.stringify(errors, null, 2), contentType: 'application/json'});
-  expect(errors, 'No uncaught application or console errors').toEqual([]);
+  const expected = (page as ErrorAwarePage).expectedApplicationErrors || [];
+  expect(errors.filter(error => !expected.some(pattern => pattern.test(error))), 'No unexpected application or console errors').toEqual([]);
+});
+
+test('welcome Open works before graphics initialize and an empty chooser leaves it idle', async ({page}) => {
+  const chooser = page.waitForEvent('filechooser');
+  await page.locator('header').getByRole('button', {name: /^Open file/}).click();
+  await (await chooser).setFiles([]);
+  await expect(page.locator('.viewport-canvas canvas')).toHaveCount(0);
+  await expect(page.getByRole('button', {name: 'Explore a sample model', exact: true})).toBeEnabled();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  const startupResources = await page.evaluate(() => performance.getEntriesByType('resource').map(entry => new URL(entry.name).pathname));
+  expect(startupResources.filter(name => /(?:model-runtime|three\.core|project-file|ray-tracing)[.-]/.test(name)), 'Welcome does not fetch geometry, ZIP or ray-tracing modules').toEqual([]);
+});
+
+test('canceled delayed import cannot overwrite a later model', async ({page}) => {
+  await page.evaluate(() => {
+    const original = File.prototype.arrayBuffer;
+    const state = window as typeof window & {delayedReadStarted?: boolean; delayedReadFinished?: boolean; releaseDelayedRead?: () => void};
+    File.prototype.arrayBuffer = async function() {
+      if (this.name === 'delayed-cancel.stl') {
+        state.delayedReadStarted = true;
+        await new Promise<void>(resolve => { state.releaseDelayedRead = resolve; });
+        const bytes = await original.call(this);
+        state.delayedReadFinished = true;
+        return bytes;
+      }
+      return original.call(this);
+    };
+  });
+  const triangle = Buffer.from('solid test\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid test\n');
+  await page.locator('input[type=file]').setInputFiles({name: 'delayed-cancel.stl', mimeType: 'model/stl', buffer: triangle});
+  await page.waitForFunction(() => (window as typeof window & {delayedReadStarted?: boolean}).delayedReadStarted);
+  await page.getByRole('button', {name: 'Cancel import', exact: true}).click();
+  await expect(page.getByRole('alert')).toContainText('Import canceled');
+  await page.locator('input[type=file]').setInputFiles({name: 'replacement.stl', mimeType: 'model/stl', buffer: triangle});
+  await expect(page.locator('header')).toContainText('replacement.stl');
+  await expect(page.locator('.model-badge')).toContainText('1 part');
+  await page.evaluate(async () => {
+    (window as typeof window & {releaseDelayedRead?: () => void}).releaseDelayedRead!();
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  });
+  await page.waitForFunction(() => (window as typeof window & {delayedReadFinished?: boolean}).delayedReadFinished);
+  await expect(page.locator('.model-badge')).toContainText('1 part');
+  await expect(page.locator('header')).toContainText('replacement.stl');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByRole('button', {name: 'Cancel import', exact: true})).toHaveCount(0);
+  await expect(page.locator('.viewport-canvas canvas')).toHaveCount(1);
+});
+
+test('failed lazy runtime fetch leaves Open usable and a second sample request recovers', async ({page, context}) => {
+  const session = await context.newCDPSession(page);
+  await session.send('Network.enable');
+  await session.send('Network.setBypassServiceWorker', {bypass: true});
+  await page.reload();
+  (page as ErrorAwarePage).expectedApplicationErrors = [/Failed to load resource: net::ERR_FAILED/];
+  await page.route(/\/(?:assets\/model-runtime-[^/]+\.js|src\/core\/model-runtime\.ts)(?:\?|$)/, route => route.abort('failed'), {times: 1});
+  await page.getByRole('button', {name: 'Explore a sample model', exact: true}).click();
+  await expect(page.getByRole('alert')).toContainText(/Failed to fetch|module script|dynamically imported/i);
+  await expect(page.locator('.viewport-canvas canvas')).toHaveCount(0);
+  await expect(page.locator('header').getByRole('button', {name: /^Open file/})).toBeEnabled();
+  // A long download error overlaps the sample action on narrow screens.
+  await page.getByRole('button', {name: 'Dismiss error', exact: true}).click();
+  await page.getByRole('button', {name: 'Explore a sample model', exact: true}).click();
+  await expect(page.locator('.model-badge')).toContainText('4 parts');
+  await expect(page.locator('.viewport-canvas canvas')).toHaveCount(1);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+test('graphics initialization failure stops the spinner and a later import retries', async ({page}) => {
+  await page.evaluate(() => {
+    const original = HTMLCanvasElement.prototype.getContext;
+    const state = window as typeof window & {rejectTestGraphics?: boolean};
+    state.rejectTestGraphics = true;
+    HTMLCanvasElement.prototype.getContext = function(kind: string, options?: unknown) {
+      if (state.rejectTestGraphics && /^(webgl2?|experimental-webgl)$/.test(kind)) return null;
+      return original.call(this, kind, options);
+    } as typeof original;
+  });
+  (page as ErrorAwarePage).expectedApplicationErrors = [/THREE\.WebGLRenderer: Error creating WebGL context/];
+  await page.getByRole('button', {name: 'Explore a sample model', exact: true}).click();
+  await expect(page.getByRole('alert')).toContainText(/WebGL context/);
+  await expect(page.getByRole('heading', {name: 'Starting 3D viewer…', exact: true})).toHaveCount(0);
+  await expect(page.locator('.viewport-canvas canvas')).toHaveCount(0);
+  await expect(page.locator('header').getByRole('button', {name: /^Open file/})).toBeEnabled();
+  await page.evaluate(() => { (window as typeof window & {rejectTestGraphics?: boolean}).rejectTestGraphics = false; });
+  await page.locator('input[type=file]').setInputFiles({name: 'graphics-retry.stl', mimeType: 'model/stl', buffer: Buffer.from('solid retry\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid retry\n')});
+  await expect(page.locator('.viewport-canvas canvas')).toHaveCount(1);
+  await expect(page.locator('header')).toContainText('graphics-retry.stl');
+  await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
 async function closeInspector(page: Page) {

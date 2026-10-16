@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import * as T from "three";
+import type { Vector3 } from "three";
 import { createId } from "./core/id";
 import {
   Box,
@@ -55,16 +55,10 @@ import {
   DEFAULT_DISPLAY,
   type DisplayOptions,
 } from "./components/DisplaySettings";
-import {
-  exportProject,
-  readProject,
-  restoreProjectState,
-  type ReviewNote,
-} from "./core/project-file";
-import { Viewer } from "./core/viewer";
+import type { ReviewNote } from "./core/project-file";
+import type { Viewer } from "./core/viewer";
 import type { RayTracingState } from "./core/ray-tracing-types";
-import { ACCEPT, importFiles, disposeDocument } from "./core/importers";
-import { createDemo } from "./core/demo";
+import { ACCEPT } from "./core/formats";
 import { cad } from "./core/cad-client";
 import {
   UNITS,
@@ -73,8 +67,6 @@ import {
   pointDistance,
   threePointAngle,
 } from "./core/units";
-import { surfacePath } from "./core/surface-path";
-import { featureProperties, featureDirection } from "./core/properties";
 import { isNative, nativeOpen, saveBlob } from "./core/files";
 import type {
   ModelDocument,
@@ -88,6 +80,14 @@ import type {
   Vec3,
   ExactPair,
 } from "./core/types";
+type ModelRuntime = typeof import("./core/model-runtime");
+// Failed chunk fetches can be retried by opening a file again.
+let runtimePromise: Promise<ModelRuntime> | undefined;
+const loadRuntime = () =>
+  (runtimePromise ??= import("./core/model-runtime").catch((error) => {
+    runtimePromise = undefined;
+    throw error;
+  }));
 const readPrefs = () => {
   try {
     return JSON.parse(localStorage.getItem("shenzhen-preferences") || "{}");
@@ -153,7 +153,10 @@ function App() {
   docRef.current = doc;
   const viewer = useRef<Viewer | undefined>(undefined);
   const [ready, setReady] = useState(false);
-  const [dimensions, setDimensions] = useState<T.Vector3>();
+  const [runtime, setRuntime] = useState<ModelRuntime>();
+  const [viewerAttempt, setViewerAttempt] = useState(0);
+  const [viewerFailed, setViewerFailed] = useState(false);
+  const [dimensions, setDimensions] = useState<Vector3>();
   const fileInput = useRef<HTMLInputElement>(null);
   const help = useRef<HTMLDialogElement>(null);
   const settings = useRef<HTMLDialogElement>(null);
@@ -282,14 +285,15 @@ function App() {
       setOpacity(1);
       setDoc(model);
       setOrtho(model.is2D);
-      setError("");
     },
     [clear],
   );
   useEffect(() => {
     if (ready && doc) {
       viewer.current!.setModel(doc);
-      setDimensions(viewer.current!.getBounds().getSize(new T.Vector3()));
+      setDimensions(
+        viewer.current!.getBounds().getSize(new runtime!.Vector3()),
+      );
     }
   }, [doc, ready]);
   useEffect(() => {
@@ -336,51 +340,84 @@ function App() {
   useEffect(() => {
     viewer.current?.setProjection(ortho);
   }, [ortho, ready]);
-  const demo = () => {
-    loadEpoch.current++;
+  const demo = async () => {
+    const generation = ++loadEpoch.current;
     cad.cancel();
-    if (docRef.current) disposeDocument(docRef.current);
-    sourceFiles.current = [];
-    demoProject.current = true;
-    install(createDemo());
-    setLoading("");
+    clear();
+    viewer.current?.clearModel();
+    if (docRef.current) runtime!.disposeDocument(docRef.current);
+    setDoc(undefined);
+    setError("");
+    setLoading("Opening sample model…");
+    try {
+      const engine = await loadRuntime();
+      if (generation !== loadEpoch.current) return;
+      setRuntime(engine);
+      if (!ready) {
+        setViewerFailed(false);
+        setViewerAttempt((old) => old + 1);
+      }
+      sourceFiles.current = [];
+      demoProject.current = true;
+      install(engine.createDemo());
+    } catch (failure) {
+      if (generation === loadEpoch.current)
+        setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      if (generation === loadEpoch.current) setLoading("");
+    }
   };
   const load = useCallback(
     async (files: File[]) => {
       if (!files.length) return;
       const generation = ++loadEpoch.current;
+      cad.cancel();
       clear();
       setError("");
       setDoc(undefined);
       viewer.current?.clearModel();
-      if (docRef.current) disposeDocument(docRef.current);
+      if (docRef.current) runtime!.disposeDocument(docRef.current);
       setLoading("Reading file…");
       try {
+        const engine = await loadRuntime();
+        if (generation !== loadEpoch.current) return;
+        setRuntime(engine);
+        if (!ready) {
+          setViewerFailed(false);
+          setViewerAttempt((old) => old + 1);
+        }
         const projectFile = files.find((file) =>
           file.name.toLowerCase().endsWith(".sz3d"),
         );
-        const project = projectFile
-          ? await readProject(projectFile)
+        const projectTools = projectFile
+          ? await import("./core/project-file")
           : undefined;
+        if (generation !== loadEpoch.current) return;
+        const project = projectFile
+          ? await projectTools!.readProject(projectFile)
+          : undefined;
+        if (generation !== loadEpoch.current) return;
         const modelFiles = project?.files ?? files;
         const model = project?.demo
-          ? createDemo()
-          : await importFiles(
+          ? engine.createDemo()
+          : await engine.importFiles(
               modelFiles,
               project?.quality ?? quality,
-              setLoading,
+              (message) => {
+                if (generation === loadEpoch.current) setLoading(message);
+              },
             );
         let restored;
         try {
           restored = project
-            ? await restoreProjectState(project, model)
+            ? await projectTools!.restoreProjectState(project, model)
             : undefined;
         } catch (failure) {
-          disposeDocument(model);
+          engine.disposeDocument(model);
           throw failure;
         }
         if (generation !== loadEpoch.current) {
-          disposeDocument(model);
+          engine.disposeDocument(model);
           return;
         }
         sourceFiles.current = modelFiles;
@@ -412,7 +449,7 @@ function App() {
         if (generation === loadEpoch.current) setLoading("");
       }
     },
-    [quality, clear, install, recent],
+    [quality, clear, install, recent, runtime, ready],
   );
   const open = useCallback(async () => {
     try {
@@ -442,10 +479,12 @@ function App() {
       const geometry = part && doc.geometries.get(part.geometryId);
       if (part && geometry) {
         geometry.geometry.computeBoundingBox();
-        const local = geometry.geometry.boundingBox!.getCenter(new T.Vector3());
+        const local = geometry.geometry.boundingBox!.getCenter(
+          new runtime!.Vector3(),
+        );
         const world = local
           .clone()
-          .applyMatrix4(new T.Matrix4().fromArray(part.matrix));
+          .applyMatrix4(new runtime!.Matrix4().fromArray(part.matrix));
         setNoteAnchor({
           id: uid(),
           partId: part.id,
@@ -512,18 +551,21 @@ function App() {
   };
   const shareProject = async () => {
     if (!doc || sharing) return;
+    const projectFiles = sourceFiles.current.slice();
+    const isDemoProject = demoProject.current;
     setSharing(true);
     try {
+      const { exportProject } = await import("./core/project-file");
       const blob = await exportProject({
         doc,
-        files: sourceFiles.current,
+        files: projectFiles,
         notes,
         measurements: saved,
         source,
         unit,
         scale,
         quality,
-        demo: demoProject.current,
+        demo: isDemoProject,
       });
       const name = doc.name.replace(/\.[^.]+$/, "") + ".sz3d";
       const file = new File([blob], name, { type: "application/octet-stream" });
@@ -567,7 +609,7 @@ function App() {
       if (mode === "feature" && next.length === 1) {
         setMeasuring(true);
         try {
-          const props = await featureProperties(doc, first);
+          const props = await runtime!.featureProperties(doc, first);
           if (epoch.current === generation) setProperties(props);
         } catch (e) {
           if (epoch.current === generation)
@@ -606,10 +648,10 @@ function App() {
             : "Straight-line distance between picked points";
       }
       if (tool === "angle" && next.length === 2 && !doc.exactModelId) {
-        const a = featureDirection(doc, next[0]),
-          b = featureDirection(doc, next[1]);
+        const a = runtime!.featureDirection(doc, next[0]),
+          b = runtime!.featureDirection(doc, next[1]);
         if (a && b) {
-          measurement.angle = T.MathUtils.radToDeg(a.angleTo(b));
+          measurement.angle = (a.angleTo(b) * 180) / Math.PI;
           measurement.note =
             "Angle between mesh surface normals or line directions (approximate).";
         } else
@@ -627,7 +669,7 @@ function App() {
         await new Promise((resolve) => setTimeout(resolve, 20));
         try {
           const g = doc.geometries.get(first.geometryId)!.geometry;
-          const path = surfacePath(
+          const path = runtime!.surfacePath(
             g,
             first.localPoint,
             next[1].localPoint,
@@ -635,10 +677,10 @@ function App() {
             next[1].triangleIndex,
           );
           if (path) {
-            const matrix = new T.Matrix4().fromArray(first.matrix);
+            const matrix = new runtime!.Matrix4().fromArray(first.matrix);
             measurement.path = path.points.map(
               (p) =>
-                new T.Vector3()
+                new runtime!.Vector3()
                   .fromArray(p)
                   .applyMatrix4(matrix)
                   .toArray() as Vec3,
@@ -665,7 +707,7 @@ function App() {
         setMeasuring(true);
         try {
           const [a, b] = await Promise.all(
-            next.map((p) => featureProperties(doc, p)),
+            next.map((p) => runtime!.featureProperties(doc, p)),
           );
           if (!a.center || !b.center) {
             measurement.distance = undefined;
@@ -731,7 +773,7 @@ function App() {
       }
       if (epoch.current === generation) setCurrent(measurement);
     },
-    [doc, mode, tool, distanceReference],
+    [doc, mode, tool, distanceReference, runtime],
   );
   const pick = useCallback(
     (p: Pick) => {
@@ -1327,6 +1369,8 @@ function App() {
         )}
         <section className="viewport-region">
           <Viewport
+            key={viewerAttempt}
+            ViewerClass={runtime?.Viewer}
             onPick={pick}
             onHover={setHover}
             onReady={(v) => {
@@ -1344,7 +1388,10 @@ function App() {
               };
               setReady(true);
             }}
-            onError={setError}
+            onError={(message) => {
+              setViewerFailed(true);
+              setError(message);
+            }}
           />
           {sharing && (
             <div className="project-progress" role="status">
@@ -1551,10 +1598,10 @@ function App() {
               </button>
             </div>
           )}
-          {!!loading && (
+          {(!!loading || (doc && !ready && !viewerFailed)) && (
             <div className="loading-overlay" role="status">
               <LoaderCircle className="spin" size={30} />
-              <h2>{loading}</h2>
+              <h2>{loading || "Starting 3D viewer…"}</h2>
               <p>Geometry is processed locally on your device.</p>
               <div className="indeterminate-progress" />
               <button className="button subtle" onClick={cancel}>

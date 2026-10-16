@@ -1,7 +1,7 @@
 {
   "name": "shenzhen-3d",
   "version": "0.1.2",
-  "description": "Shenzhen 3D — local-first CAD and mesh viewer",
+  "description": "Shenzhen 3D \u2014 local-first CAD and mesh viewer",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
@@ -21,7 +21,9 @@
     "package:electron:mac": "node electron/package-mac.mjs",
     "build:electron:mac": "npm run build && npm run package:electron:mac",
     "test:electron": "node --test electron/assets.test.cjs && node electron/smoke.mjs",
-    "test:viewer": "node scripts/perf/check-viewer-correctness.mjs --software"
+    "test:viewer": "node scripts/perf/check-viewer-correctness.mjs --software",
+    "benchmark:startup": "node tests/startup-browser.mjs",
+    "benchmark:startup:electron": "node electron/startup.mjs"
   },
   "keywords": [],
   "author": "",

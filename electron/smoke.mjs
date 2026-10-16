@@ -12,9 +12,11 @@ const environment = { ...process.env };
 delete environment.SHENZHEN_3D_DEV_URL;
 const packaged = process.argv.find(argument => argument.startsWith('--executable='))?.slice(13);
 const development = process.argv.includes('--development');
+const lazyStartup = process.argv.includes('--lazy-startup');
 if (development && packaged) throw new Error('Development smoke cannot use a packaged executable');
 if (development) environment.SHENZHEN_3D_DEV_URL = 'http://127.0.0.1:1420/';
-const application = await electron.launch({ ...(packaged ? { executablePath: packaged } : {}), args: packaged ? [] : [path.resolve('electron/main.cjs')], env: environment });
+const launchedAt = performance.now();
+const application = await electron.launch({ ...(packaged ? { executablePath: packaged } : {}), args: [...(packaged ? [] : [path.resolve('electron/main.cjs')]), `--user-data-dir=${path.join(directory, 'profile')}`], env: environment });
 const errors = [];
 const serviceWorkerRequests = [];
 const workers = [];
@@ -25,7 +27,18 @@ try {
   page.on('worker', worker => workers.push(worker.url()));
   page.on('request', request => { if (new URL(request.url()).pathname === '/sw.js') serviceWorkerRequests.push(request.url()); });
   page.on('console', message => { if (message.type() === 'error') { errors.push(message.text()); console.error(message.text()); } });
-  await expect(page.locator('.viewport-canvas > canvas').first()).toBeVisible();
+  await expect(page.locator('header').getByRole('button', { name: /^Open file/ })).toBeEnabled();
+  const launchToOpenReadyMs = performance.now() - launchedAt;
+  const startup = await page.evaluate(() => {
+    const navigation = performance.getEntriesByType('navigation')[0];
+    return { initialCanvasCount: document.querySelectorAll('.viewport-canvas canvas').length, domContentLoadedMs: navigation?.domContentLoadedEventEnd, loadEventMs: navigation?.loadEventEnd, usedJSHeapBytes: performance.memory?.usedJSHeapSize, resourcePaths: performance.getEntriesByType('resource').map(entry => new URL(entry.name).pathname) };
+  });
+  startup.launchToOpenReadyMs = launchToOpenReadyMs;
+  if (lazyStartup) {
+    expect(startup.initialCanvasCount).toBe(0);
+    expect(startup.resourcePaths.filter(name => /(?:model-runtime|three\.core|project-file|ray-tracing)[.-]/.test(name))).toEqual([]);
+    checks.push('welcome Open ready before renderer creation');
+  }
   await page.bringToFront();
   await application.evaluate(({ app, BrowserWindow }) => { app.focus({ steal: true }); BrowserWindow.getAllWindows()[0].focus(); });
   console.log(`Electron ${development ? 'development' : 'production'} app loaded`);
@@ -42,7 +55,7 @@ try {
     expect(documentCSP).not.toContain("'unsafe-eval'");
   }
   expect(await page.evaluate(() => typeof window.require)).toBe('undefined');
-  const capability = await page.evaluate(async () => {
+  const measureCapability = () => page.evaluate(async () => {
     const gl = document.querySelector('canvas').getContext('webgl2');
     const debug = gl.getExtension('WEBGL_debug_renderer_info');
     const frames = [];
@@ -50,8 +63,6 @@ try {
     const intervals = frames.slice(1).map((time, i) => time - frames[i]).sort((a, b) => a - b);
     return { renderer: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER), rafFps: (frames.length - 1) * 1000 / (frames.at(-1) - frames[0]), rafP50Ms: intervals[Math.floor(intervals.length / 2)] };
   });
-  expect(capability.renderer).not.toMatch(/SwiftShader|llvmpipe/i);
-  console.log('Hardware capability', capability);
   const chooserWait = page.waitForEvent('filechooser', { timeout: 20_000 });
   await application.evaluate(({ Menu }) => Menu.getApplicationMenu().items.find(item => item.label === 'File').submenu.items.find(item => item.label === 'Open…').click());
   await (await chooserWait).setFiles(path.resolve('fixtures/sample-assembly.step'));
@@ -61,6 +72,10 @@ try {
     page.getByRole('alert').waitFor({ state: 'visible', timeout: 120_000 }).then(async () => { throw new Error(await page.getByRole('alert').innerText()); }),
   ]);
   await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.locator('.viewport-canvas > canvas').first()).toBeVisible();
+  const capability = await measureCapability();
+  expect(capability.renderer).not.toMatch(/SwiftShader|llvmpipe/i);
+  console.log('Hardware capability after STEP import', capability);
   console.log('STEP worker/WASM import complete');
   const png = path.join(directory, 'export.png');
   // Main-process test automation supplies the chosen path, pauses longer than
@@ -96,7 +111,7 @@ try {
   expect(page.url()).toBe(applicationURL);
   if (!development) expect(serviceWorkerRequests).toEqual([]);
   expect(errors).toEqual([]);
-  const report = { ...runtime, ...capability, development, documentCSP, workers, checks: development ? checks.filter(check => !['local protocol', 'no native service worker'].includes(check)) : checks };
+  const report = { ...runtime, ...capability, development, startup, documentCSP, workers, checks: development ? checks.filter(check => !['local protocol', 'no native service worker'].includes(check)) : checks };
   const output = process.argv.find(argument => argument.startsWith('--report='))?.slice(9);
   if (output) {
     await fs.writeFile(output, JSON.stringify(report, null, 2));

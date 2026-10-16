@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { Viewer } from "../core/viewer";
+import type { Viewer } from "../core/viewer";
 import type { Pick } from "../core/types";
 export interface ViewportHandle {
   viewer: Viewer | undefined;
@@ -7,12 +7,13 @@ export interface ViewportHandle {
 export const Viewport = forwardRef<
   ViewportHandle,
   {
+    ViewerClass?: typeof Viewer;
     onPick: (pick: Pick) => void;
     onHover: (text: string) => void;
     onReady: (viewer: Viewer) => void;
     onError: (message: string) => void;
   }
->(({ onPick, onHover, onReady, onError }, ref) => {
+>(({ ViewerClass, onPick, onHover, onReady, onError }, ref) => {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | undefined>(undefined);
   const pick = useRef(onPick);
@@ -29,8 +30,9 @@ export const Viewport = forwardRef<
     [],
   );
   useEffect(() => {
+    if (!ViewerClass) return;
     try {
-      const v = new Viewer(host.current!);
+      const v = new ViewerClass(host.current!);
       viewer.current = v;
       v.onPick = (p) => pick.current(p);
       v.onHover = (t) => hover.current(t);
@@ -42,7 +44,7 @@ export const Viewport = forwardRef<
     } catch (e) {
       onError(e instanceof Error ? e.message : "WebGL could not initialize");
     }
-  }, []);
+  }, [ViewerClass]);
   return (
     <div
       ref={host}

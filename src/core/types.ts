@@ -9,7 +9,10 @@ export type Unit = "mm" | "cm" | "m" | "in" | "ft" | "um";
 export type SelectionMode = "point" | "feature" | "part";
 export type FeatureFilter = "auto" | "face" | "edge" | "vertex";
 export type ToolMode = "distance" | "angle" | "path";
-export type CadResult = OcctJSExactOpenResult;
+export type CadResult = OcctJSExactOpenResult & {
+  /** Runtime ownership only; direct kernel results have no browser worker owner. */
+  exactWorkerGeneration?: number;
+};
 export interface GeometryData {
   id: string;
   geometry: BufferGeometry;
@@ -44,6 +47,7 @@ export interface ModelDocument {
   importMs: number;
   bytes: number;
   exactModelId?: number;
+  exactWorkerGeneration?: number;
   is2D: boolean;
 }
 export interface Pick {
