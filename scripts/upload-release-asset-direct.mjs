@@ -4,6 +4,7 @@
 //   --tag=preview-0.1.6 --commit=SOURCE_SHA --file=FILE --sha256=FILE_SHA \
 //   [--replace-sha256=OBSOLETE_SHA] [--cleanup-part-count=17]
 // Existing gh auth is sent only through curl's private stdin configuration.
+// 0.1.6 core files require adjacent build-info.json with matching releaseOwner/sourceCommit.
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -56,6 +57,33 @@ export function verifyDraft(release, input) {
   )
     throw Error(
       "Expected held draft and exact source commit; nothing was changed.",
+    );
+}
+export async function verifyArtifactMetadata(input) {
+  if (input.tag !== "preview-0.1.6") return;
+  const core =
+    input.name === "build-info.json" ||
+    input.name === "latest-mac.yml" ||
+    /\.(dmg|zip)(\.blockmap)?$/.test(input.name);
+  if (!core) return;
+  let metadata;
+  try {
+    const filename = path.join(path.dirname(input.filename), "build-info.json");
+    const stat = await fs.stat(filename);
+    if (!stat.isFile() || stat.size > 2 * 1024 * 1024) throw Error();
+    metadata = JSON.parse(await fs.readFile(filename, "utf8"));
+  } catch {
+    throw Error(
+      "Adjacent build-info.json is required for 0.1.6 core artifacts.",
+    );
+  }
+  if (metadata?.releaseOwner !== input.repo.split("/")[0])
+    throw Error(
+      "Artifact releaseOwner does not match the destination repository.",
+    );
+  if (metadata.sourceCommit !== input.commit)
+    throw Error(
+      "Artifact sourceCommit does not match the expected frozen source.",
     );
 }
 const digest = (asset) =>
@@ -160,6 +188,7 @@ export async function uploadDirect(
     (await hashFile(input.filename)) !== input.sha256
   )
     throw Error("Local file SHA-256 or size differs; nothing was changed.");
+  await verifyArtifactMetadata(input);
   async function gh(args) {
     const attempts = args[0] === "api" && !args.includes("--method") ? 3 : 1;
     for (let i = 0; i < attempts; i++) {

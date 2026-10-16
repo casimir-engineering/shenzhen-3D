@@ -11,7 +11,77 @@ import {
   curlConfig,
   uploadDirect,
   parseDirectArgs,
+  verifyArtifactMetadata,
 } from "./upload-release-asset-direct.mjs";
+
+test("0.1.6 binary, feed, blockmap and provenance require matching adjacent owner/source metadata", async () => {
+  const directory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "variant-metadata-test-"),
+  );
+  try {
+    for (const name of [
+      "app.dmg",
+      "app.zip",
+      "app.dmg.blockmap",
+      "app.zip.blockmap",
+      "latest-mac.yml",
+      "build-info.json",
+    ]) {
+      const value = {
+        ...input,
+        tag: "preview-0.1.6",
+        name,
+        filename: path.join(directory, name),
+      };
+      await fs.rm(path.join(directory, "build-info.json"), { force: true });
+      await assert.rejects(
+        verifyArtifactMetadata(value),
+        /Adjacent build-info/,
+      );
+      for (const owner of ["mirror-org", "casimir-engineering"]) {
+        const own = { ...value, repo: `${owner}/shenzhen-3D` };
+        await fs.writeFile(
+          path.join(directory, "build-info.json"),
+          JSON.stringify({ releaseOwner: owner, sourceCommit: input.commit }),
+        );
+        await verifyArtifactMetadata(own);
+        const other =
+          owner === "mirror-org" ? "casimir-engineering" : "mirror-org";
+        await assert.rejects(
+          verifyArtifactMetadata({ ...own, repo: `${other}/shenzhen-3D` }),
+          /releaseOwner/,
+        );
+        await assert.rejects(
+          verifyArtifactMetadata({ ...own, commit: "c".repeat(40) }),
+          /sourceCommit/,
+        );
+      }
+      await fs.writeFile(path.join(directory, "build-info.json"), "{}");
+      await assert.rejects(verifyArtifactMetadata(value), /releaseOwner/);
+      await fs.writeFile(path.join(directory, "build-info.json"), "not json");
+      await assert.rejects(
+        verifyArtifactMetadata(value),
+        /Adjacent build-info/,
+      );
+    }
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+test("older release schemas and 0.1.6 evidence do not require owner metadata", async () => {
+  for (const tag of ["preview-0.1.4", "preview-0.1.5"])
+    await verifyArtifactMetadata({
+      ...input,
+      tag,
+      filename: "/missing-folder/app.dmg",
+    });
+  await verifyArtifactMetadata({
+    ...input,
+    tag: "preview-0.1.6",
+    name: "runtime-report.json",
+    filename: "/missing-folder/runtime-report.json",
+  });
+});
 
 test("CLI accepts SHA-256 options and rejects unknown or duplicate options", () => {
   assert.deepEqual(
@@ -134,6 +204,11 @@ async function fixture(runTest, options = {}) {
   try {
     const filename = path.join(directory, "app.dmg");
     await fs.writeFile(filename, "x");
+    if (options.metadata !== undefined)
+      await fs.writeFile(
+        path.join(directory, "build-info.json"),
+        JSON.stringify(options.metadata),
+      );
     const value = { ...input, filename, ...options.input };
     let assets = options.assets ? structuredClone(options.assets) : [];
     const calls = [],
@@ -202,6 +277,24 @@ async function fixture(runTest, options = {}) {
     await fs.rm(directory, { recursive: true, force: true });
   }
 }
+for (const metadata of [
+  undefined,
+  {},
+  { releaseOwner: "casimir-engineering", sourceCommit: input.commit },
+  { releaseOwner: "mirror-org", sourceCommit: "c".repeat(40) },
+])
+  test(`0.1.6 invalid provenance blocks GitHub access (${metadata === undefined ? "missing" : JSON.stringify(metadata)})`, async () => {
+    await fixture(
+      async ({ value, options, calls }) => {
+        await assert.rejects(
+          uploadDirect(value, options),
+          /build-info|releaseOwner|sourceCommit/,
+        );
+        assert.deepEqual(calls, []);
+      },
+      { input: { tag: "preview-0.1.6" }, metadata },
+    );
+  });
 test("matching final skips credentials and curl", async () => {
   await fixture(
     async ({ value, options, calls }) => {
