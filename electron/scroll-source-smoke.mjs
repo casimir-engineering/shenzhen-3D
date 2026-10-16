@@ -38,7 +38,7 @@ let app;
 try {
   if (process.platform !== "darwin")
     throw Error("Native scroll smoke requires macOS");
-  let binary, loader, preload;
+  let binary, runtimeBinary, loader, preload;
   if (packagedApp) {
     const resources = path.join(packagedApp, "Contents/Resources");
     const archive = path.join(resources, "app.asar");
@@ -55,6 +55,9 @@ try {
       archive + ".unpacked",
       "electron/native/scroll-source.node",
     );
+    // Match the loader's ASAR alias to reuse the existing native module.
+    // The unpacked alias would initialize the same dylib a second time.
+    runtimeBinary = path.join(archive, "electron/native/scroll-source.node");
     loader = path.join(archive, "electron/scroll-source.cjs");
     preload = path.join(archive, "electron/preload.cjs");
     execFileSync("codesign", ["--verify", "--strict", binary], {
@@ -67,6 +70,7 @@ try {
     });
   } else {
     binary = await buildNativeScroll();
+    runtimeBinary = binary;
     loader = path.join(root, "electron/scroll-source.cjs");
     preload = path.join(root, "electron/preload.cjs");
   }
@@ -158,7 +162,7 @@ try {
       started: native.start(),
       exports: Object.getOwnPropertyNames(native).sort(),
     };
-  }, binary);
+  }, runtimeBinary);
   expect(report.nativeStatus.started).toBe(true);
   expect(report.nativeStatus.exports).toEqual(["source", "start"]);
   report.verified.addonLoadAndStart = true;
