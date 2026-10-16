@@ -36,6 +36,9 @@ describe("native platform metadata", () => {
   });
   it("keeps mobile version and build numbers aligned with the product", () => {
     expect(tauri.version).toBe(pkg.version);
+    const lock = JSON.parse(read("package-lock.json"));
+    expect(lock.version).toBe(pkg.version);
+    expect(lock.packages[""].version).toBe(pkg.version);
     const apple = read("src-tauri/gen/apple/project.yml");
     expect(apple.match(/CFBundleShortVersionString: (\S+)/)?.[1]).toBe(
       pkg.version,
@@ -50,6 +53,11 @@ describe("native platform metadata", () => {
       ).toBe(pkg.version);
     expect(
       read("src-tauri/Cargo.toml").match(/^version = "([^"]+)"/m)?.[1],
+    ).toBe(pkg.version);
+    expect(
+      read("src-tauri/Cargo.lock").match(
+        /name = "shenzhen-3d"\nversion = "([^"]+)"/,
+      )?.[1],
     ).toBe(pkg.version);
   });
 });
