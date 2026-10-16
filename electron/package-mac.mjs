@@ -12,6 +12,55 @@ const {
 } = require("./release-channel.cjs");
 const hash = (bytes, algorithm = "sha256", encoding = "hex") =>
   createHash(algorithm).update(bytes).digest(encoding);
+/** A Developer ID signature changes Mach-O bytes without changing native code. */
+export function nativeCodeHash(bytes) {
+  const data = Buffer.from(bytes);
+  if (data.length < 32 || data.readUInt32LE(0) !== 0xfeedfacf)
+    throw Error("Expected thin 64-bit Mach-O native helper");
+  const count = data.readUInt32LE(16),
+    commandBytes = data.readUInt32LE(20);
+  if (count > 128 || commandBytes > data.length - 32)
+    throw Error("Invalid native load commands");
+  let offset = 32,
+    signature,
+    signatureSize = 0;
+  const commands = [];
+  for (let i = 0; i < count; i++) {
+    const command = data.readUInt32LE(offset),
+      size = data.readUInt32LE(offset + 4);
+    if (size < 8 || offset + size > 32 + commandBytes)
+      throw Error("Invalid native load command");
+    if (command === 0x1d) {
+      signature = data.readUInt32LE(offset + 8);
+      signatureSize += size;
+    } else {
+      const normalized = Buffer.from(data.subarray(offset, offset + size));
+      if (
+        command === 0x19 &&
+        normalized.subarray(8, 24).toString().replace(/\0/g, "") ===
+          "__LINKEDIT"
+      ) {
+        normalized.writeBigUInt64LE(0n, 32);
+        normalized.writeBigUInt64LE(0n, 48);
+      }
+      commands.push(normalized);
+    }
+    offset += size;
+  }
+  if (
+    !signature ||
+    signature < offset ||
+    signature > data.length ||
+    signatureSize !== 16
+  )
+    throw Error("Expected one linked native code signature");
+  const normalized = Buffer.from(data.subarray(0, signature));
+  normalized.writeUInt32LE(count - 1, 16);
+  normalized.writeUInt32LE(commandBytes - signatureSize, 20);
+  normalized.fill(0, 32, 32 + commandBytes);
+  Buffer.concat(commands).copy(normalized, 32);
+  return hash(normalized);
+}
 const run = (command, args) =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd: root, stdio: "inherit" });
@@ -46,7 +95,7 @@ async function fingerprint(directory, relative = "", result = {}) {
 export async function stageRuntime(
   staging,
   pkg,
-  { releaseOwner, forbiddenOwners = [] } = {},
+  { releaseOwner, forbiddenOwners = [], nativeScroll } = {},
 ) {
   assertReleaseOwner(releaseOwner);
   for (const owner of forbiddenOwners) {
@@ -144,6 +193,15 @@ export async function stageRuntime(
     }
   }
   await copy(path.join(root, "electron"));
+  const nativeRuntimeFiles = {};
+  if (nativeScroll) {
+    const target = path.join(staging, "electron/native/scroll-source.node");
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.copyFile(nativeScroll, target);
+    nativeRuntimeFiles["electron/native/scroll-source.node"] = nativeCodeHash(
+      await fs.readFile(target),
+    );
+  }
   const manifest = {
     name: pkg.name,
     version: pkg.version,
@@ -201,6 +259,7 @@ export async function stageRuntime(
     releaseOwner,
     packageLockSha256: hash(lockBytes),
     runtimeFiles: production,
+    nativeRuntimeFiles,
     runtimeDependencies: [...inventory.values()].sort((a, b) =>
       a.installedPath.localeCompare(b.installedPath),
     ),
@@ -269,6 +328,21 @@ export function verifyRuntimeArchive(
       hash(asar.extractFile(archive, file)) !== provenance.runtimeFiles[file]
     )
       throw Error(`Packaged runtime helper is missing or changed: ${file}`);
+  for (const [file, expected] of Object.entries(
+    provenance.nativeRuntimeFiles || {},
+  )) {
+    if (
+      !archiveFiles.includes("/" + file) ||
+      !asar.statFile(archive, file).unpacked ||
+      nativeCodeHash(asar.extractFile(archive, file)) !== expected
+    )
+      throw Error(
+        `Packaged native helper is missing, packed or changed: ${file}`,
+      );
+  }
+  for (const file of archiveFiles.filter((file) => file.endsWith(".node")))
+    if (!Object.hasOwn(provenance.nativeRuntimeFiles || {}, file.slice(1)))
+      throw Error(`Unexpected native helper is not in provenance: ${file}`);
   if (archiveFiles.some((file) => /\.(?:test|spec)\.cjs$/.test(file)))
     throw Error("Test helpers must not be packaged.");
   const packaged = new Set(),
@@ -311,6 +385,9 @@ export function verifyRuntimeArchive(
   }
   return {
     ...isolation,
+    nativeRuntimeFilesVerified: true,
+    nativeRuntimeFileCount: Object.keys(provenance.nativeRuntimeFiles || {})
+      .length,
     packagedDependencyCount: packaged.size,
     packages: [...packaged].sort(),
   };
@@ -374,6 +451,8 @@ async function verifyPackage(output, pkg, provenance) {
     ownerIsolationVerified: runtime.ownerIsolationVerified,
     ownerIsolationScannedFiles: runtime.ownerIsolationScannedFiles,
     packagedDependencyCount: runtime.packagedDependencyCount,
+    nativeRuntimeFilesVerified: runtime.nativeRuntimeFilesVerified,
+    nativeRuntimeFileCount: runtime.nativeRuntimeFileCount,
     updateMetadata: {
       file: "latest-mac.yml",
       sha256: hash(await fs.readFile(path.join(output, "latest-mac.yml"))),
@@ -389,6 +468,12 @@ async function main() {
     .map((arg) => assertReleaseOwner(arg.slice(15)));
   // Packaging always consumes a fresh production build, including stage-only verification.
   await run("npm", ["run", "build"]);
+  const nativeScroll =
+    process.platform === "darwin"
+      ? await (
+          await import("./build-native-scroll.mjs")
+        ).buildNativeScroll({ arch: "arm64" })
+      : undefined;
   const pkg = JSON.parse(
     await fs.readFile(path.join(root, "package.json"), "utf8"),
   );
@@ -406,6 +491,7 @@ async function main() {
   const runtime = await stageRuntime(staging, pkg, {
     releaseOwner,
     forbiddenOwners,
+    nativeScroll,
   });
   const provenance = {
     version: pkg.version,

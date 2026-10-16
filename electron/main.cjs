@@ -65,6 +65,14 @@ function command(selector) {
 let updateManager;
 let updateTimer;
 let recentFileStore;
+let scrollSource;
+ipcMain.on("shenzhen-scroll-source", (event, epochMs) => {
+  event.returnValue =
+    event.senderFrame === event.sender.mainFrame &&
+    trusted(event.senderFrame?.url)
+      ? (scrollSource?.(event.sender, epochMs) ?? null)
+      : null;
+});
 const pendingOpenFiles = require("./file-open-queue.cjs").createFileOpenQueue();
 let primaryFileWindowId;
 function fileTarget() {
@@ -338,6 +346,10 @@ function createWindow(url = entry) {
 }
 
 app.whenReady().then(() => {
+  scrollSource = require("./scroll-source.cjs").createScrollSource({
+    app,
+    windows: BrowserWindow,
+  });
   app.setAboutPanelOptions({
     applicationName: app.name,
     copyright: "© 2026 INTUITION Robotique & Technologies",

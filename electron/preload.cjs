@@ -1,4 +1,10 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
+contextBridge.exposeInMainWorld("shenzhenScroll", {
+  source: (epochMs) =>
+    typeof epochMs === "number" && Number.isFinite(epochMs)
+      ? ipcRenderer.sendSync("shenzhen-scroll-source", epochMs)
+      : null,
+});
 contextBridge.exposeInMainWorld("shenzhenFiles", {
   takeOpen: () => ipcRenderer.invoke("shenzhen-open-files"),
   subscribeOpen: (listener) => {

@@ -39,12 +39,14 @@ module.exports = {
   files: [
     "dist/**/*",
     "electron/**/*.cjs",
+    "electron/native/*.node",
     "build-info.json",
     "package.json",
     "!.release-verification.json",
     "!**/*.test.cjs",
     "!**/*.spec.cjs",
   ],
+  asarUnpack: ["electron/native/*.node"],
   extraResources: [
     {
       from: path.join(__dirname, "node_modules/electron/dist/LICENSE"),
