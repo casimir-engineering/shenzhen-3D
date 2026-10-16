@@ -1114,10 +1114,10 @@ export class Viewer {
     if (orthographic === this.camera instanceof T.OrthographicCamera) return;
     const old = this.camera;
     const aspect = this.host.clientWidth / this.host.clientHeight;
+    const distance = old.position.distanceTo(this.controls.target);
     const h =
       old instanceof T.PerspectiveCamera
-        ? old.position.distanceTo(this.controls.target) *
-          Math.tan(T.MathUtils.degToRad(old.fov / 2))
+        ? distance * Math.tan(T.MathUtils.degToRad(old.fov / 2))
         : this.radius;
     this.camera = orthographic
       ? new T.OrthographicCamera(
@@ -1131,8 +1131,11 @@ export class Viewer {
       : new T.PerspectiveCamera(
           38,
           aspect,
-          0.00001,
-          Math.max(this.radius * 100, 1000),
+          // Keep the fitted model's depth precision when returning from a 2D
+          // drawing. A fixed microscopic near plane causes thin CAD surfaces
+          // to fight even though their geometry and depth buffers are intact.
+          Math.max(distance / 10000, 0.00001),
+          Math.max(distance * 100, 1000),
         );
     this.camera.position.copy(old.position);
     this.camera.quaternion.copy(old.quaternion);
