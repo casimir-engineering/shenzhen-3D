@@ -5,6 +5,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { createUpdateManager } = require("./update-manager.cjs");
+const { PrivateReleaseProvider } = require("./github-update-provider.cjs");
 
 const TEST_TOKEN = "unit-test-credential-not-a-real-github-token";
 const until = async (condition) => {
@@ -192,7 +193,8 @@ test("private MacUpdater settings preserve signature checks and require explicit
   await f.manager.check();
   assert.equal(f.calls.creates, 1);
   assert.deepEqual(f.updater.feed, {
-    provider: "github",
+    provider: "custom",
+    updateProvider: PrivateReleaseProvider,
     owner: "casimir-engineering",
     repo: "shenzhen-3D",
     private: true,

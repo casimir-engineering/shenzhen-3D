@@ -237,7 +237,9 @@ function createUpdateManager({
     updater.allowPrerelease = state.prereleases;
     // Keep MacUpdater's native code-signature verification enabled and untouched.
     updater.setFeedURL({
-      provider: "github",
+      provider: "custom",
+      updateProvider: require("./github-update-provider.cjs")
+        .PrivateReleaseProvider,
       owner: state.repository,
       repo: "shenzhen-3D",
       private: true,
