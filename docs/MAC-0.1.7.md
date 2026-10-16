@@ -24,3 +24,9 @@ The signed Apple Silicon package passed 20 runtime checks and nine native file-o
 The app and DMG are Developer ID signed and independently accepted by Apple notarization. Tickets are attached to both, including the app embedded in the updater ZIP and installer. Signature, Gatekeeper, archive-integrity and final artifact-hash checks passed. The final mounted DMG was inspected in Finder with its Applications shortcut and both Retina background representations.
 
 The frozen runtime is `da40fdd61012f5f9f856b624601be4a02c2b0168`. Later documentation commits do not change the packaged application.
+
+The published release contains ten assets: DMG, updater ZIP, their blockmaps, update feed, build provenance, notarization verification, packaged runtime report, checksums and release notes. Every uploaded asset's SHA-256 and size matched the final local file before and after publication. The packaged update source is fixed to the repository that supplied the installer.
+
+The actual packaged update provider selected the published 0.1.7 release from its fixed repository. The selected ZIP was downloaded and matched its final SHA-256, SHA-512 and size. Its extracted app matched the frozen ASAR, version and source binding, and passed signature, stapled-ticket and Gatekeeper checks.
+
+Native update installation was not rerun for this release: the existing user app was open, and the test refused to touch its shared native updater state. The running app and real user profile were left untouched. The update manager, provider and channel source are unchanged from 0.1.6.
