@@ -29,7 +29,7 @@ npm run build:electron:mac
 npm run test:electron
 ```
 
-The package script creates a Developer ID signed ARM64 DMG when the configured signing identity is available. Signing does not establish notarization. Electron and Chromium notices are included with the bundle. See [measured renderer performance](PERFORMANCE.md) for browser, Electron and system WebKit evidence. The Tauri builds below remain available as lightweight desktop and mobile packages.
+The package script always builds the frontend first, then creates a Developer ID signed ARM64 app and DMG when the configured signing identity is available. Timestamped output folders in `artifacts/electron/` include `build-info.json` with the source commit and SHA-256 hashes of every frontend file. The DMG includes a drag-to-Applications shortcut and 1×/2× artwork; regenerate the committed artwork from its editable SVG with `npm run build:dmg:artwork`. Signing does not establish notarization. Electron and Chromium notices are included with the bundle. See [measured renderer performance](PERFORMANCE.md) for browser, Electron and system WebKit evidence. The Tauri builds below remain available as lightweight desktop and mobile packages.
 
 For desktop development:
 
