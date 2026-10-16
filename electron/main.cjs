@@ -73,6 +73,13 @@ ipcMain.on("shenzhen-scroll-source", (event, epochMs) => {
       ? (scrollSource?.(event.sender, epochMs) ?? null)
       : null;
 });
+ipcMain.on("shenzhen-rotate-subscribe", (event, enabled) => {
+  if (
+    event.senderFrame === event.sender.mainFrame &&
+    trusted(event.senderFrame?.url)
+  )
+    scrollSource?.subscribeRotate(event.sender, enabled);
+});
 const pendingOpenFiles = require("./file-open-queue.cjs").createFileOpenQueue();
 let primaryFileWindowId;
 function fileTarget() {
@@ -349,6 +356,7 @@ app.whenReady().then(() => {
   scrollSource = require("./scroll-source.cjs").createScrollSource({
     app,
     windows: BrowserWindow,
+    trusted,
   });
   app.setAboutPanelOptions({
     applicationName: app.name,
@@ -478,6 +486,7 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 app.on("will-quit", () => {
+  scrollSource?.dispose();
   clearTimeout(updateTimer);
   updateManager?.dispose();
 });

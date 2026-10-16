@@ -146,7 +146,19 @@ try {
   );
   await fs.writeFile(
     main,
-    `const{app,BrowserWindow,ipcMain}=require('electron');app.whenReady().then(()=>{const query=require(${JSON.stringify(loader)}).createScrollSource({app:${packagedApp ? "{isPackaged:true}" : "app"},windows:BrowserWindow});ipcMain.on('shenzhen-scroll-source',(e,t)=>{e.returnValue=e.senderFrame===e.sender.mainFrame&&e.senderFrame.url===${JSON.stringify(new URL("file://" + html).href)}?query(e.sender,t):null});const w=new BrowserWindow({show:false,width:500,height:400,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,preload:${JSON.stringify(preload)}}});w.loadFile(${JSON.stringify(html)});});app.on('window-all-closed',()=>app.quit());`,
+    `const{app,BrowserWindow,ipcMain}=require('electron');
+    app.whenReady().then(()=>{
+      const trusted=url=>url===${JSON.stringify(new URL("file://" + html).href)};
+      const query=require(${JSON.stringify(loader)}).createScrollSource({app:${packagedApp ? "{isPackaged:true}" : "app"},windows:BrowserWindow,trusted});
+      global.rotationRequests=[];
+      ipcMain.on('shenzhen-scroll-source',(e,t)=>{e.returnValue=e.senderFrame===e.sender.mainFrame&&trusted(e.senderFrame.url)?query(e.sender,t):null});
+      ipcMain.on('shenzhen-rotate-subscribe',(e,enabled)=>{
+        if(e.senderFrame===e.sender.mainFrame&&trusted(e.senderFrame.url))global.rotationRequests.push({enabled,accepted:query.subscribeRotate(e.sender,enabled)});
+      });
+      app.on('will-quit',()=>query.dispose());
+      const w=new BrowserWindow({show:false,width:500,height:400,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,preload:${JSON.stringify(preload)}}});
+      w.loadFile(${JSON.stringify(html)});
+    });app.on('window-all-closed',()=>app.quit());`,
   );
   app = await electron.launch({
     args: [main, `--user-data-dir=${path.join(directory, "profile")}`],
@@ -161,10 +173,20 @@ try {
     return {
       started: native.start(),
       exports: Object.getOwnPropertyNames(native).sort(),
+      invalidRotationDrains: [
+        native.drainRotations(),
+        native.drainRotations(Buffer.alloc(0)),
+        native.drainRotations(Buffer.alloc(8)),
+      ],
     };
   }, runtimeBinary);
   expect(report.nativeStatus.started).toBe(true);
-  expect(report.nativeStatus.exports).toEqual(["source", "start"]);
+  expect(report.nativeStatus.exports).toEqual([
+    "drainRotations",
+    "source",
+    "start",
+  ]);
+  expect(report.nativeStatus.invalidRotationDrains).toEqual([[], [], []]);
   report.verified.addonLoadAndStart = true;
   report.verified.productionExports = true;
   report.checks.push({
@@ -203,11 +225,54 @@ try {
       ].map((value) => source(value)),
     };
   });
-  expect(guards.exports).toEqual(["source"]);
+  expect(guards.exports).toEqual(["source", "subscribeRotate"]);
   expect(guards.results).toEqual(Array(8).fill(null));
   report.verified.ipcBounds = true;
   report.checks.push({
     name: "production-preload-narrow-api-and-invalid-stale-unknown-input-bounds",
+    passed: true,
+  });
+  await page.evaluate(() => {
+    window.rotationSamples = [];
+    window.stopRotationSmoke = window.shenzhenScroll.subscribeRotate((sample) =>
+      window.rotationSamples.push(sample),
+    );
+  });
+  await expect
+    .poll(() => app.evaluate(() => global.rotationRequests.length))
+    .toBe(1);
+  await app.evaluate(({ BrowserWindow }) => {
+    const contents = BrowserWindow.getAllWindows()[0].webContents;
+    contents.send("shenzhen-rotate", {
+      degrees: 2.5,
+      clientX: 20,
+      clientY: 30,
+      epochMs: Date.now(),
+    });
+    contents.send("shenzhen-rotate", {
+      degrees: NaN,
+      clientX: 20,
+      clientY: 30,
+      epochMs: Date.now(),
+    });
+  });
+  await expect
+    .poll(() => page.evaluate(() => window.rotationSamples.length))
+    .toBe(1);
+  expect(await page.evaluate(() => window.rotationSamples[0].degrees)).toBe(
+    2.5,
+  );
+  await page.evaluate(() => window.stopRotationSmoke());
+  await expect
+    .poll(() => app.evaluate(() => global.rotationRequests.length))
+    .toBe(2);
+  expect(await app.evaluate(() => global.rotationRequests)).toEqual([
+    { enabled: true, accepted: true },
+    { enabled: false, accepted: true },
+  ]);
+  report.verified.rotationSubscription = true;
+  report.checks.push({
+    name: "isolated-native-queue-subscription-and-validated-preload-IPC-roundtrip",
     passed: true,
   });
   report.ipcPerformance = await page.evaluate(() => {

@@ -4,6 +4,7 @@
 
 namespace {
 scroll_source::Ring samples;
+scroll_source::RotationQueue rotations;
 id monitor = nil;
 double epochNow() { return NSDate.date.timeIntervalSince1970 * 1000.0; }
 void stop(void*) {
@@ -15,18 +16,51 @@ napi_value start(napi_env env, napi_callback_info) {
     return nullptr;
   }
   if (!monitor) {
-    monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskScrollWheel
+    monitor = [NSEvent addLocalMonitorForEventsMatchingMask:(NSEventMaskScrollWheel | NSEventMaskRotate)
       handler:^NSEvent*(NSEvent* event) {
         // App-local only: no event tap, global monitoring or accessibility grant.
         const double epoch = epochNow() - NSProcessInfo.processInfo.systemUptime * 1000.0
                              + event.timestamp * 1000.0;
-        samples.add(epoch, event.windowNumber, event.hasPreciseScrollingDeltas,
-                    event.phase, event.momentumPhase);
+        if (event.type == NSEventTypeRotate) {
+          const NSPoint point = event.locationInWindow;
+          rotations.add(epoch, event.windowNumber, event.rotation, point.x, point.y);
+        } else {
+          samples.add(epoch, event.windowNumber, event.hasPreciseScrollingDeltas,
+                      event.phase, event.momentumPhase);
+        }
         return event;
       }];
   }
   napi_value result;
   napi_get_boolean(env, monitor != nil, &result);
+  return result;
+}
+napi_value drainRotations(napi_env env, napi_callback_info info) {
+  size_t count = 1; napi_value args[1];
+  napi_get_cb_info(env, info, &count, args, nullptr, nullptr);
+  napi_value result; napi_create_array(env, &result);
+  bool isBuffer = false; void* pointer = nullptr; size_t bytes = 0;
+  if (count != 1 || napi_is_buffer(env, args[0], &isBuffer) != napi_ok || !isBuffer ||
+      napi_get_buffer_info(env, args[0], &pointer, &bytes) != napi_ok || bytes != sizeof(void*))
+    return result;
+  NSView* view = (__bridge NSView*)*reinterpret_cast<void**>(pointer);
+  if (!view || !view.window) return result;
+  uint32_t index = 0;
+  rotations.drain(view.window.windowNumber, epochNow(), [&](const scroll_source::Rotation& event) {
+    const NSPoint point = [view convertPoint:NSMakePoint(event.x, event.y) fromView:nil];
+    const NSRect bounds = view.bounds;
+    double x, y;
+    if (!scroll_source::clientCoordinates(point.x, point.y, NSMinX(bounds), NSMinY(bounds),
+        bounds.size.width, bounds.size.height, view.isFlipped, x, y)) return;
+    napi_value item; napi_create_object(env, &item);
+    const char* keys[] = {"degrees", "clientX", "clientY", "epochMs"};
+    const double values[] = {event.degrees, x, y, event.epochMs};
+    for (size_t i = 0; i < 4; i++) {
+      napi_value number; napi_create_double(env, values[i], &number);
+      napi_set_named_property(env, item, keys[i], number);
+    }
+    napi_set_element(env, result, index++, item);
+  });
   return result;
 }
 napi_value source(napi_env env, napi_callback_info info) {
@@ -52,8 +86,9 @@ napi_value init(napi_env env, napi_value exports) {
   napi_property_descriptor properties[] = {
     {"start", nullptr, start, nullptr, nullptr, nullptr, napi_default, nullptr},
     {"source", nullptr, source, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"drainRotations", nullptr, drainRotations, nullptr, nullptr, nullptr, napi_default, nullptr},
   };
-  napi_define_properties(env, exports, 2, properties);
+  napi_define_properties(env, exports, 3, properties);
   napi_add_env_cleanup_hook(env, stop, nullptr);
   return exports;
 }

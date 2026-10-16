@@ -1,9 +1,52 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
+const rotationListeners = new Set();
+ipcRenderer.on("shenzhen-rotate", (_event, value) => {
+  if (
+    !value ||
+    ![value.degrees, value.clientX, value.clientY, value.epochMs].every(
+      Number.isFinite,
+    ) ||
+    value.degrees === 0 ||
+    Math.abs(value.degrees) > 180 ||
+    value.clientX < 0 ||
+    value.clientY < 0 ||
+    value.clientX > 1000000 ||
+    value.clientY > 1000000
+  )
+    return;
+  for (const listener of rotationListeners) {
+    try {
+      listener({
+        degrees: value.degrees,
+        clientX: value.clientX,
+        clientY: value.clientY,
+        epochMs: value.epochMs,
+      });
+    } catch {
+      /* Isolate consumer errors from the native input subscription. */
+    }
+  }
+});
 contextBridge.exposeInMainWorld("shenzhenScroll", {
   source: (epochMs) =>
     typeof epochMs === "number" && Number.isFinite(epochMs)
       ? ipcRenderer.sendSync("shenzhen-scroll-source", epochMs)
       : null,
+  subscribeRotate: (listener) => {
+    if (typeof listener !== "function") return () => {};
+    const callback = (value) => listener(value);
+    rotationListeners.add(callback);
+    if (rotationListeners.size === 1)
+      ipcRenderer.send("shenzhen-rotate-subscribe", true);
+    let active = true;
+    return () => {
+      if (!active) return;
+      active = false;
+      rotationListeners.delete(callback);
+      if (!rotationListeners.size)
+        ipcRenderer.send("shenzhen-rotate-subscribe", false);
+    };
+  },
 });
 contextBridge.exposeInMainWorld("shenzhenFiles", {
   takeOpen: () => ipcRenderer.invoke("shenzhen-open-files"),

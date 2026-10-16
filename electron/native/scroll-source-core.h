@@ -41,4 +41,48 @@ class Ring {
   std::array<Sample, 128> samples_{};
   uint64_t next_ = 0;
 };
+struct Rotation {
+  double epochMs = 0;
+  int64_t window = 0;
+  double degrees = 0, x = 0, y = 0;
+  bool active = false;
+};
+inline bool clientCoordinates(double pointX, double pointY, double originX,
+                              double originY, double width, double height,
+                              bool flipped, double& x, double& y) {
+  x = pointX - originX;
+  y = flipped ? pointY - originY : originY + height - pointY;
+  return std::isfinite(x) && std::isfinite(y) && width > 0 && height > 0 &&
+         x >= 0 && y >= 0 && x < width && y < height;
+}
+class RotationQueue {
+ public:
+  bool add(double epochMs, int64_t window, double degrees, double x, double y) {
+    if (!std::isfinite(epochMs) || epochMs <= 0 || window <= 0 ||
+        !std::isfinite(degrees) || degrees == 0 || std::abs(degrees) > 180 ||
+        !std::isfinite(x) || !std::isfinite(y) ||
+        std::abs(x) > 1000000 || std::abs(y) > 1000000) return false;
+    events_[next_++ % events_.size()] = {epochMs, window, degrees, x, y, true};
+    return true;
+  }
+  template <typename Emit>
+  void drain(int64_t window, double nowMs, Emit emit) {
+    if (window <= 0 || !std::isfinite(nowMs)) return;
+    // Chronological, bounded, consume-once delivery; other windows stay queued.
+    for (size_t i = 0; i < events_.size(); i++) {
+      auto& event = events_[(next_ + i) % events_.size()];
+      if (!event.active) continue;
+      if (event.window != window) continue;
+      if (event.epochMs > nowMs + 20 || nowMs - event.epochMs > 2000) {
+        event.active = false;
+        continue;
+      }
+      event.active = false;
+      emit(event);
+    }
+  }
+ private:
+  std::array<Rotation, 128> events_{};
+  uint64_t next_ = 0;
+};
 }  // namespace scroll_source
