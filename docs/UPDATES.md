@@ -30,9 +30,11 @@ The builder's `afterPack` hook verifies the completed ASAR **before signing**: a
 
 Verification performed with an actual unsigned `--dir --publish never` Mac build using electron-builder 26.15.3: its ASAR contains **16 updater runtime packages**, including `electron-updater` 6.8.9, without Three, React, Vite, Electron or electron-builder as app dependencies. Requiring `electron-updater` from the extracted ASAR succeeds. The new archive verifier rejects the earlier incomplete ASAR that contained only the updater itself. A collector-only check previously accepted a symlinked staging graph despite missing transitive packages in the ASAR; that staging approach has been removed.
 
-`node electron/package-mac.mjs --stage-only` rebuilds the frontend and records the self-contained staging manifest/provenance without signing or creating installers. Full packaging additionally verifies the generated feed and artifact hashes. A signed DMG/ZIP package and real update installation must be checked separately after the app is frozen.
+`node electron/package-mac.mjs --stage-only --release-owner=<github-owner>` rebuilds the frontend and records the self-contained staging manifest/provenance without signing or creating installers. Full packaging additionally verifies the generated feed and artifact hashes. A signed DMG/ZIP package and real update installation must be checked separately after the app is frozen.
 
 ## Publish a complete release
+
+Local upload helpers require an ignored `artifacts/operator/release-upload.json` owned by the current user, with file mode `0600`. Its schema is `{ "version": 1, "repositories": ["<github-owner>/shenzhen-3D"] }`. Set the owner to this repository. Missing or mismatched authorization fails before any remote operation. The assembly workflow creates its temporary configuration from `github.repository`. No publisher configuration or credentials are bundled with the app.
 
 1. Freeze and commit the intended source; build the DMG and ZIP together. Inspect `build-info.json`, the app signature, packaged updater feed and generated `latest-mac.yml`. Run the native app smoke before publishing.
 2. Create a version-tagged GitHub release with a strictly newer app version. Upload the unmodified DMG, ZIP, `latest-mac.yml`, relevant blockmaps and provenance. Keep a draft until the complete asset set is present and verified.

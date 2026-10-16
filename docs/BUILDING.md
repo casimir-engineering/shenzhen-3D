@@ -25,7 +25,7 @@ Production builds generate `dist/sw.js` and include the web manifest. The browse
 The Chromium desktop performance shell avoids the default 60 Hz scheduling observed in the Mac system WebKit view. It uses the same built frontend, sandboxed rendering, local asset protocol, native file picker and save dialog. On Apple Silicon:
 
 ```sh
-npm run build:electron:mac
+npm run package:electron:mac -- --release-owner="<github-owner>"
 npm run test:electron
 ```
 

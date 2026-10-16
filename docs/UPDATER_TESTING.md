@@ -4,7 +4,7 @@ These developer tools use existing Keychain and GitHub CLI credentials. They nev
 
 ## Notarize a frozen package
 
-First create a clean signed package with `npm run package:electron:mac`. Keep that timestamped output immutable. Create a separate output folder whose name includes `-notarized-`, under `artifacts/electron/`.
+First create a clean signed package with `npm run package:electron:mac -- --release-owner=<github-owner>`. Keep that timestamped output immutable. Create a separate output folder whose name includes `-notarized-`, under `artifacts/electron/`.
 
 ```sh
 signed_output="$PWD/artifacts/electron/<signed-build>"
