@@ -5,8 +5,15 @@ import { analyzeMeshFeature } from "./mesh-features";
 import { createId } from "./id";
 import {
   WheelGestureClassifier,
+  pointerDrag,
+  orbitMouseAction,
+  wheelZoomSpeed,
   type NavigationMode,
 } from "./navigation-gestures";
+import {
+  DEFAULT_NAVIGATION_STYLE,
+  type NavigationStyleId,
+} from "./navigation-style";
 import {
   measurementComponents,
   MEASUREMENT_AXIS_COLORS,
@@ -45,7 +52,9 @@ export interface ViewOptions {
   sectionPosition: number;
   hidden: Set<string>;
   theme: "dark" | "light";
-  navigation: NavigationMode;
+  navigation?: NavigationMode;
+  navigationStyle?: NavigationStyleId;
+  reverseWheelZoom?: boolean;
   navigationDetail?: "auto" | "full";
   renderStyle?: "shaded" | "shaded-edges" | "wireframe" | "hidden-line";
   lightAzimuth?: number;
@@ -142,6 +151,8 @@ export class Viewer {
   }));
   private labelMeasureDirty = true;
   private wheelGestures = new WheelGestureClassifier();
+  private hoveredPartId?: string;
+  private normalFaceKey?: string;
   private overlayData: OverlayData = { points: [] };
   private markers: T.Mesh[] = [];
   private mode: SelectionMode = "point";
@@ -157,7 +168,9 @@ export class Viewer {
     sectionPosition: 0.5,
     hidden: new Set(),
     theme: "dark",
-    navigation: "auto",
+    navigation: "mouse",
+    navigationStyle: DEFAULT_NAVIGATION_STYLE,
+    reverseWheelZoom: false,
   };
   onPick?: (pick: Pick) => void;
   onHover?: (text: string) => void;
@@ -226,13 +239,13 @@ export class Viewer {
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
     const canvas = this.renderer.domElement;
+    canvas.addEventListener("pointerdown", this.configureDrag, true);
     canvas.addEventListener("pointerdown", this.down);
     canvas.addEventListener("pointerup", this.up);
     canvas.addEventListener("click", this.click);
     canvas.addEventListener("pointermove", this.move);
     canvas.addEventListener("pointercancel", this.cancelPointer);
     canvas.addEventListener("pointerleave", this.leave);
-    canvas.addEventListener("dblclick", this.doubleClick);
     canvas.addEventListener("contextmenu", this.contextMenu);
     canvas.addEventListener("wheel", this.wheel, {
       passive: false,
@@ -257,13 +270,56 @@ export class Viewer {
     c.screenSpacePanning = true;
     c.rotateSpeed = 0.75;
     c.zoomSpeed = 1.3;
-    c.mouseButtons.LEFT = this.model?.is2D ? T.MOUSE.PAN : T.MOUSE.ROTATE;
-    c.mouseButtons.MIDDLE = T.MOUSE.PAN;
-    c.touches.ONE = T.TOUCH.ROTATE;
-    c.touches.TWO = T.TOUCH.DOLLY_PAN;
+    this.applyNavigationBindings(c);
     c.addEventListener("change", this.cameraChanged);
     return c;
   }
+  private applyNavigationBindings(controls = this.controls) {
+    const unmodified = { shiftKey: false, ctrlKey: false, metaKey: false };
+    for (const [key, button] of [
+      ["LEFT", 0],
+      ["MIDDLE", 1],
+      ["RIGHT", 2],
+    ] as const)
+      controls.mouseButtons[key] = this.mouseAction(button, unmodified);
+    controls.touches.ONE = this.model?.is2D ? T.TOUCH.PAN : T.TOUCH.ROTATE;
+    controls.touches.TWO = T.TOUCH.DOLLY_PAN;
+  }
+  private mouseAction(
+    button: number,
+    modifiers: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean },
+  ) {
+    const action = orbitMouseAction(
+      pointerDrag(
+        this.options.navigationStyle ?? DEFAULT_NAVIGATION_STYLE,
+        button,
+        modifiers,
+        !!this.model?.is2D,
+      ),
+      modifiers,
+    );
+    return action === "rotate"
+      ? T.MOUSE.ROTATE
+      : action === "pan"
+        ? T.MOUSE.PAN
+        : action === "dolly"
+          ? T.MOUSE.DOLLY
+          : null;
+  }
+  private configureDrag = (event: PointerEvent) => {
+    this.controls.zoomSpeed = 1.3;
+    if (event.pointerType === "touch") return;
+    const key =
+      event.button === 0
+        ? "LEFT"
+        : event.button === 1
+          ? "MIDDLE"
+          : event.button === 2
+            ? "RIGHT"
+            : undefined;
+    if (key)
+      this.controls.mouseButtons[key] = this.mouseAction(event.button, event);
+  };
   private cameraChanged = () => {
     this.navigationUntil = performance.now() + 180;
     window.clearTimeout(this.navigationTimer);
@@ -634,6 +690,7 @@ export class Viewer {
   }
   setSelectionMode(mode: SelectionMode, filter: FeatureFilter, snap: boolean) {
     this.lastHoverKey = "";
+    this.hoveredPartId = undefined;
     this.clearGroup(this.hoverGroup);
     this.mode = mode;
     this.filter = filter;
@@ -724,9 +781,7 @@ export class Viewer {
       this.center.y,
       this.bounds.min.z - this.radius * 0.002,
     );
-    this.controls.mouseButtons.LEFT = doc.is2D ? T.MOUSE.PAN : T.MOUSE.ROTATE;
-    this.controls.mouseButtons.MIDDLE = T.MOUSE.PAN;
-    this.controls.touches.ONE = doc.is2D ? T.TOUCH.PAN : T.TOUCH.ROTATE;
+    this.applyNavigationBindings();
     this.transformsDirty = true;
     this.applyOptions(this.options);
     if (doc.is2D) {
@@ -739,6 +794,8 @@ export class Viewer {
     this.prepareNavigationDetail();
   }
   clearModel() {
+    this.hoveredPartId = undefined;
+    this.normalFaceKey = undefined;
     this.cancelRayTracing();
     this.lodAbort?.abort();
     this.lodAbort = undefined;
@@ -794,6 +851,19 @@ export class Viewer {
         }
       }
       if (!selectedBounds.isEmpty()) bounds = selectedBounds;
+    }
+    this.fitBounds(bounds);
+  }
+  private fitBounds(bounds: T.Box3) {
+    if (bounds.isEmpty()) return;
+    if (bounds.getSize(new T.Vector3()).lengthSq() === 0) {
+      const offset = this.camera.position.clone().sub(this.controls.target),
+        center = bounds.getCenter(new T.Vector3());
+      this.controls.target.copy(center);
+      this.camera.position.copy(center).add(offset);
+      this.controls.update();
+      this.invalidate();
+      return;
     }
     const center = bounds.getCenter(new T.Vector3()),
       size = bounds.getSize(new T.Vector3());
@@ -855,6 +925,169 @@ export class Viewer {
     this.controls.update();
     this.invalidate();
   }
+  /** Fits feature geometry in its current display transform; stale picks fall back to their part. */
+  fitSelection(picks: Pick[]) {
+    if (!this.model) return;
+    const bounds = new T.Box3();
+    for (const pick of picks) {
+      const feature = new T.Box3();
+      if (
+        this.mode !== "part" &&
+        this.featureVertices(pick, (point) => feature.expandByPoint(point))
+      )
+        bounds.union(feature);
+      else {
+        const part = this.parts.get(pick.partId),
+          matrix = this.partDisplay.get(pick.partId);
+        const geometry =
+          part && this.model.geometries.get(part.geometryId)?.geometry;
+        if (geometry && matrix) {
+          geometry.computeBoundingBox();
+          bounds.union(geometry.boundingBox!.clone().applyMatrix4(matrix));
+        }
+      }
+    }
+    if (!bounds.isEmpty()) this.fitBounds(bounds);
+  }
+  private featureVertices(
+    pick: Pick,
+    visit: (point: T.Vector3) => void,
+  ): boolean {
+    const data = this.model?.geometries.get(pick.geometryId);
+    if (!data || !this.parts.has(pick.partId)) return false;
+    const matrix =
+        this.partDisplay.get(pick.partId) ??
+        new T.Matrix4().fromArray(pick.matrix),
+      point = new T.Vector3();
+    let count = 0,
+      invalid = false;
+    const add = (x: number, y: number, z: number) => {
+      point.set(x, y, z).applyMatrix4(matrix);
+      if (!Number.isFinite(point.x + point.y + point.z)) {
+        invalid = true;
+        return;
+      }
+      visit(point);
+      count++;
+    };
+    const position = data.geometry.getAttribute("position"),
+      index = data.geometry.index;
+    if (pick.kind === "point" || pick.kind === "vertex") {
+      const vertex =
+        pick.kind === "vertex"
+          ? data.topology?.vertices.find((v) => v.id === pick.elementId)
+          : undefined;
+      const p = vertex?.position ?? pick.localPoint;
+      add(...p);
+    } else if (pick.kind === "edge") {
+      const edge = data.topology?.edges.find((e) => e.id === pick.elementId);
+      if (edge)
+        for (let i = 0; i < edge.points.length; i += 3)
+          add(edge.points[i], edge.points[i + 1], edge.points[i + 2]);
+      else if (data.lines && position)
+        for (let i = 0; i < position.count; i++)
+          add(position.getX(i), position.getY(i), position.getZ(i));
+    } else if (pick.kind === "face" && position) {
+      const face = data.topology?.faces.find((f) => f.id === pick.elementId);
+      if (data.topology && !face) return false;
+      const triangle =
+        pick.triangleIndex ?? (!data.topology ? pick.elementId : undefined);
+      const offsets = face
+        ? undefined
+        : triangle === undefined
+          ? []
+          : (analyzeMeshFeature(data.geometry, triangle)?.triangleIndices ?? [
+              triangle,
+            ]);
+      const addOffset = (offset: number) => {
+        if (
+          !Number.isInteger(offset) ||
+          offset < 0 ||
+          offset >= (index?.count ?? position.count)
+        ) {
+          invalid = true;
+          return;
+        }
+        const n = index ? index.getX(offset) : offset;
+        add(position.getX(n), position.getY(n), position.getZ(n));
+      };
+      if (face)
+        for (
+          let i = face.firstIndex;
+          i < face.firstIndex + face.indexCount;
+          i++
+        )
+          addOffset(i);
+      else
+        for (const triangle of offsets ?? [])
+          for (let j = 0; j < 3; j++) addOffset(triangle * 3 + j);
+    }
+    return count > 0 && !invalid;
+  }
+  /** Aligns to a planar selected face; a repeated aligned command views its reverse side. */
+  normalToFace(pick: Pick): boolean {
+    if (pick.kind !== "face") return false;
+    const bounds = new T.Box3(),
+      a = new T.Vector3(),
+      b = new T.Vector3(),
+      normal = new T.Vector3();
+    let hasA = false,
+      hasB = false;
+    if (
+      !this.featureVertices(pick, (p) => {
+        bounds.expandByPoint(p);
+        if (!hasA) {
+          a.copy(p);
+          hasA = true;
+        } else if (!hasB && p.distanceToSquared(a) > 0) {
+          b.copy(p);
+          hasB = true;
+        } else if (hasB && normal.lengthSq() === 0) {
+          const ab = b.clone().sub(a),
+            ac = p.clone().sub(a);
+          normal.crossVectors(ab, ac);
+          if (normal.lengthSq() <= ab.lengthSq() * ac.lengthSq() * 1e-16)
+            normal.set(0, 0, 0);
+        }
+      }) ||
+      normal.lengthSq() === 0
+    )
+      return false;
+    normal.normalize();
+    const tolerance = Math.max(
+      bounds.getSize(new T.Vector3()).length() * 1e-6,
+      1e-7,
+    );
+    let planar = true;
+    this.featureVertices(pick, (p) => {
+      if (Math.abs(p.clone().sub(a).dot(normal)) > tolerance) planar = false;
+    });
+    if (!planar) return false;
+    const center = bounds.getCenter(new T.Vector3()),
+      direction = this.camera.position.clone().sub(this.controls.target);
+    const distance = Math.max(direction.length(), 1e-6);
+    direction.normalize();
+    const key = `${pick.partId}:${pick.elementId}:${pick.triangleIndex}`;
+    const repeat =
+      this.normalFaceKey === key &&
+      Math.abs(direction.dot(normal)) > 1 - 1e-6 &&
+      this.controls.target.distanceTo(center) < tolerance;
+    if (repeat) normal.copy(direction).negate();
+    else if (normal.dot(direction) < 0) normal.negate();
+    this.controls.target.copy(center);
+    this.camera.position.copy(center).addScaledVector(normal, distance);
+    this.normalFaceKey = key;
+    this.controls.update();
+    this.invalidate();
+    return true;
+  }
+  getHoveredPartId(): string | undefined {
+    return this.hoveredPartId &&
+      this.parts.has(this.hoveredPartId) &&
+      !this.options.hidden.has(this.hoveredPartId)
+      ? this.hoveredPartId
+      : undefined;
+  }
   preset(view: "iso" | "top" | "front" | "right" | "bottom" | "back" | "left") {
     const dirs = {
       iso: [1, -1, 1],
@@ -908,11 +1141,6 @@ export class Viewer {
     this.controls.dispose();
     this.controls = this.makeControls();
     this.controls.target.copy(target);
-    if (this.model?.is2D) {
-      this.controls.mouseButtons.LEFT = T.MOUSE.PAN;
-      this.controls.mouseButtons.MIDDLE = T.MOUSE.PAN;
-      this.controls.touches.ONE = T.TOUCH.PAN;
-    }
     this.controls.update();
     this.invalidate();
   }
@@ -946,6 +1174,8 @@ export class Viewer {
       old.uniformLight !== options.uniformLight ||
       old.uniformIntensity !== options.uniformIntensity;
     this.options = options;
+    if (old.navigationStyle !== options.navigationStyle)
+      this.applyNavigationBindings();
     this.scene.background = new T.Color(
       options.theme === "dark" ? 0x182126 : 0xe9eeef,
     );
@@ -1557,6 +1787,7 @@ export class Viewer {
   }
   private updateHover(event: PointerEvent) {
     const p = this.pick(event);
+    this.hoveredPartId = p?.partId;
     this.onHover?.(p ? `${p.partName} · ${p.snap}` : "");
     this.renderer.domElement.style.cursor = p ? "crosshair" : "grab";
     const key = p ? `${p.partId}:${p.kind}:${p.elementId}` : "";
@@ -1570,6 +1801,7 @@ export class Viewer {
     }
   }
   private leave = () => {
+    this.hoveredPartId = undefined;
     this.cancelHover();
     this.lastHoverKey = "";
     this.clearGroup(this.hoverGroup);
@@ -1577,33 +1809,29 @@ export class Viewer {
     this.onHover?.("");
     this.invalidate();
   };
-  private doubleClick = (event: MouseEvent) => {
-    const p = this.pick(event);
-    if (p) {
-      this.controls.target.fromArray(p.point);
-      this.controls.update();
-      this.invalidate();
-    }
-  };
   private contextMenu = (event: Event) => event.preventDefault();
   private wheel = (event: WheelEvent) => {
     if (
       this.wheelGestures.classify(
         event,
-        this.options.navigation,
+        this.options.navigation ?? "mouse",
         performance.now(),
-      ) !== "pan"
-    )
+      ) === "pan"
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const scale =
+        event.deltaMode === 1
+          ? 16
+          : event.deltaMode === 2
+            ? this.host.clientHeight
+            : 1;
+      this.controls.pan(-event.deltaX * scale, -event.deltaY * scale);
       return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    const scale =
-      event.deltaMode === 1
-        ? 16
-        : event.deltaMode === 2
-          ? this.host.clientHeight
-          : 1;
-    this.controls.pan(-event.deltaX * scale, -event.deltaY * scale);
+    }
+    this.controls.zoomSpeed = this.activePointers.size
+      ? 1.3
+      : wheelZoomSpeed(1.3, !!this.options.reverseWheelZoom, event.ctrlKey);
   };
   async screenshot() {
     let traced: ImageBitmap | undefined;

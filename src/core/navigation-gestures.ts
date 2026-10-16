@@ -1,3 +1,9 @@
+import {
+  navigationStyle,
+  type CameraDrag,
+  type NavigationStyleId,
+} from "./navigation-style";
+/** Kept for older saved preferences; automatic mode behaves like a mouse, with no device guessing. */
 export type NavigationMode = "auto" | "mouse" | "trackpad";
 export interface WheelSample {
   deltaX: number;
@@ -5,31 +11,51 @@ export interface WheelSample {
   deltaMode: number;
   ctrlKey: boolean;
 }
-
-/** WheelEvent exposes no device ID. Keep smooth pixel gestures stable through inertia. */
 export class WheelGestureClassifier {
-  private lastTime = -Infinity;
-  private gesture?: "pan" | "zoom";
   classify(
     event: WheelSample,
     mode: NavigationMode,
-    time: number,
+    _time: number,
   ): "pan" | "zoom" {
-    if (event.ctrlKey) {
-      this.gesture = undefined;
-      this.lastTime = -Infinity;
-      return "zoom";
-    }
-    if (mode !== "auto") return mode === "trackpad" ? "pan" : "zoom";
-    const continued = time >= this.lastTime && time - this.lastTime < 180;
-    this.lastTime = time;
-    if (event.deltaMode !== 0) return (this.gesture = "zoom");
-    const smooth =
-      event.deltaX !== 0 ||
-      !Number.isInteger(event.deltaY) ||
-      (Math.abs(event.deltaY) > 0 && Math.abs(event.deltaY) < 80);
-    if (smooth || (continued && this.gesture === "pan"))
-      return (this.gesture = "pan");
-    return (this.gesture = "zoom");
+    return mode === "trackpad" && !event.ctrlKey ? "pan" : "zoom";
   }
+}
+export interface NavigationModifiers {
+  shiftKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+}
+export function pointerDrag(
+  style: NavigationStyleId,
+  button: number,
+  modifiers: NavigationModifiers,
+  is2D: boolean,
+): CameraDrag {
+  const action =
+    button === 0
+      ? "orbit"
+      : button === 1 || button === 2
+        ? navigationStyle(style).drag(button === 1 ? "middle" : "right", {
+            shift: modifiers.shiftKey,
+            ctrl: modifiers.ctrlKey || modifiers.metaKey,
+          })
+        : "none";
+  return is2D && action === "orbit" ? "pan" : action;
+}
+/** OrbitControls swaps rotate/pan on modified presses; undo that swap once. */
+export function orbitMouseAction(
+  action: CameraDrag,
+  modifiers: NavigationModifiers,
+): "rotate" | "pan" | "dolly" | null {
+  const modified = modifiers.shiftKey || modifiers.ctrlKey || modifiers.metaKey;
+  if (action === "orbit") return modified ? "pan" : "rotate";
+  if (action === "pan") return modified ? "rotate" : "pan";
+  return action === "zoom" ? "dolly" : null;
+}
+export function wheelZoomSpeed(
+  speed: number,
+  reverse: boolean,
+  ctrlPinch: boolean,
+): number {
+  return reverse && !ctrlPinch ? -speed : speed;
 }
