@@ -214,15 +214,6 @@ kbd {
   padding: 4px 5px;
   border-radius: 3px;
 }
-.local-badge {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 11px;
-  margin-right: 10px;
-}
-.local-badge > span,
 .status-dot {
   width: 5px;
   height: 5px;
@@ -647,79 +638,6 @@ kbd {
   text-align: center;
   overflow: auto;
 }
-.welcome-symbol {
-  position: relative;
-  width: 90px;
-  height: 90px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 30px;
-  color: var(--jade);
-}
-.welcome-symbol:before,
-.welcome-symbol:after {
-  content: "";
-  position: absolute;
-  border: 1px solid var(--line);
-  width: 110px;
-  height: 1px;
-  left: -10px;
-  bottom: 6px;
-}
-.welcome-symbol:after {
-  width: 1px;
-  height: 74px;
-  bottom: 8px;
-  left: 0;
-}
-.welcome-dimension {
-  position: absolute;
-  bottom: -1px;
-  left: 24px;
-  font: 10px var(--mono);
-  padding: 0 5px;
-  background: var(--canvas);
-  color: var(--secondary);
-}
-.eyebrow {
-  font: 9px var(--mono);
-  letter-spacing: 1.6px;
-  color: var(--muted);
-  margin-bottom: 20px;
-}
-.welcome h1 {
-  font-size: clamp(30px, 3.2vw, 46px);
-  line-height: 1.12;
-  font-weight: 500;
-  letter-spacing: -1.6px;
-}
-.welcome h1 span {
-  color: var(--secondary);
-}
-.welcome p {
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.7;
-  margin: 20px 0 24px;
-}
-.demo-button {
-  font-size: 11px;
-  color: var(--secondary);
-  margin-top: 12px;
-  padding: 8px;
-  border-radius: 4px;
-}
-.format-list {
-  font: 9px var(--mono);
-  color: var(--secondary);
-  margin-top: 30px;
-  line-height: 1.8;
-}
-.format-list span {
-  color: var(--muted);
-  margin: 0 5px;
-}
 .drop-hint {
   font-size: 10px;
   color: var(--muted);
@@ -767,30 +685,6 @@ kbd {
   font-size: 12px;
   color: var(--muted);
   margin: 0;
-}
-.welcome-returning {
-  justify-content: flex-start;
-  padding-top: 32px;
-}
-.welcome-returning .welcome-symbol {
-  display: none;
-}
-.welcome-returning h1 {
-  font-size: 28px;
-  margin-top: 12px;
-}
-.welcome-returning h1 br {
-  display: none;
-}
-.welcome-returning h1 span::before {
-  content: " ";
-}
-.welcome-returning > p {
-  font-size: 13px;
-  margin: 8px 0 16px;
-}
-.welcome-returning > p br {
-  display: none;
 }
 .inspector-tabs {
   border-bottom: 1px solid var(--line);
@@ -1379,13 +1273,6 @@ kbd {
 .updates-dialog {
   width: min(520px, calc(100vw - 32px));
 }
-.updates-eyebrow {
-  display: block;
-  font: 10px var(--mono);
-  letter-spacing: 0.12em;
-  color: var(--muted);
-  margin-bottom: 8px;
-}
 .updates-status {
   display: flex;
   gap: 16px;
@@ -1595,9 +1482,6 @@ kbd {
   .app-header {
     padding: 0 16px;
   }
-  .local-badge {
-    display: none;
-  }
   .toolbar-cluster {
     gap: 2px;
   }
@@ -1613,9 +1497,6 @@ kbd {
   }
   .welcome {
     padding: 24px;
-  }
-  .welcome h1 {
-    font-size: 36px;
   }
   .inspector-content {
     padding: 14px;
@@ -1669,12 +1550,6 @@ kbd {
   .display-tools .text-tool {
     display: none;
   }
-  .welcome h1 {
-    font-size: 42px;
-  }
-  .welcome-symbol {
-    margin-bottom: 20px;
-  }
   .result-hero strong {
     font-size: 30px;
   }
@@ -1700,9 +1575,6 @@ kbd {
     height: 26px;
   }
   .document-title {
-    display: none;
-  }
-  .local-badge {
     display: none;
   }
   .app-header .button {
@@ -1822,39 +1694,10 @@ kbd {
     padding: 20px 16px;
     justify-content: center;
   }
-  .welcome-symbol {
-    width: 76px;
-    height: 76px;
-    margin-bottom: 25px;
-  }
-  .eyebrow {
-    font-size: 8px;
-    letter-spacing: 1px;
-    margin-bottom: 16px;
-  }
-  .welcome h1 {
-    font-size: 39px;
-  }
-  .welcome p {
-    font-size: 12px;
-    margin: 16px 0 22px;
-  }
   .welcome .large {
     height: 46px;
     font-size: 12px;
     padding: 0 14px;
-  }
-  .demo-button {
-    min-height: 40px;
-    font-size: 12px;
-  }
-  .format-list {
-    font-size: 8px;
-    max-width: 280px;
-    margin-top: 20px;
-  }
-  .format-list span {
-    margin: 0 3px;
   }
   .drop-hint {
     font-size: 9px;
@@ -2257,12 +2100,6 @@ kbd {
 .review-note form {
   margin-top: 12px;
 }
-.review-footnote {
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.6;
-  margin: 20px 0 0;
-}
 .review-empty {
   padding: 28px 0;
 }
@@ -2439,4 +2276,21 @@ kbd {
 }
 .note-location small::first-letter {
   text-transform: uppercase;
+}
+
+.welcome-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(100%, 420px);
+}
+.welcome-actions .primary {
+  flex: 1;
+}
+.welcome .recent {
+  margin-top: 32px;
+}
+
+.welcome-actions .button {
+  height: 44px;
 }

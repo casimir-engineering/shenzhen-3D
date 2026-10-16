@@ -15,9 +15,7 @@ import {
   Upload,
   MousePointer2,
   ScanLine,
-  Layers,
   Ruler,
-  Move3D,
   Route,
   Triangle,
   Maximize,
@@ -47,7 +45,6 @@ import {
   FolderOpen,
   FileBox,
   Magnet,
-  ArrowUpRight,
   ZoomIn,
   ZoomOut,
   Info,
@@ -592,7 +589,7 @@ function App() {
     setSelectedNote(note.id);
     setPlacingNote(false);
     setNoteAnchor(undefined);
-    notify("Note attached to the model");
+    notify("Note saved");
   };
   const selectNote = (note: ReviewNote) => {
     setSelectedNote(note.id);
@@ -655,7 +652,7 @@ function App() {
           await saveBlob(blob, name);
         }
       } else await saveBlob(blob, name);
-      notify("Project ready to share · model, notes and measurements included");
+      notify("Project exported");
     } catch (failure) {
       if (!(failure instanceof DOMException && failure.name === "AbortError"))
         setError(failure instanceof Error ? failure.message : String(failure));
@@ -667,7 +664,7 @@ function App() {
     loadEpoch.current++;
     cad.cancel();
     setLoading("");
-    setError("Import canceled. Choose another file to continue.");
+    setError("Import canceled.");
   };
   const complete = useCallback(
     async (next: Pick[]) => {
@@ -1192,20 +1189,15 @@ function App() {
             shenzhen<span className="brand-3d">3D</span>
           </span>
         </a>
-        <div className="header-divider" />
+        {doc && <div className="header-divider" />}
         <div className="document-title">
           {doc ? (
             <>
               <span>{doc.name}</span>
               <small>{doc.format.toUpperCase()}</small>
             </>
-          ) : (
-            <span className="muted">A clearer view of every detail.</span>
-          )}
+          ) : null}
         </div>
-        <span className="local-badge">
-          <span /> On your device
-        </span>
         <button
           className="button primary"
           onClick={() => void open()}
@@ -1246,138 +1238,144 @@ function App() {
           <HelpCircle size={18} />
         </IconButton>
       </header>
-      <div className="workspace-toolbar">
-        <div className="toolbar-cluster">
-          <IconButton
-            title={left ? "Hide assembly" : "Show assembly"}
-            onClick={() => setLeft(!left)}
-          >
-            {left ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
-          </IconButton>
-          <div className="segmented" aria-label="Selection mode">
-            <button
-              className={mode === "point" ? "active" : ""}
-              onClick={() => changeMode("point")}
-              title="Pick points · P"
+      {doc && (
+        <div className="workspace-toolbar">
+          <div className="toolbar-cluster">
+            <IconButton
+              title={left ? "Hide assembly" : "Show assembly"}
+              onClick={() => setLeft(!left)}
             >
-              <MousePointer2 size={15} />
-              <span>Point</span>
-            </button>
-            <button
-              className={mode === "feature" ? "active" : ""}
-              onClick={() => changeMode("feature")}
-              title="Pick CAD features · E"
-            >
-              <ScanLine size={15} />
-              <span>Feature</span>
-            </button>
-            <button
-              className={mode === "part" ? "active" : ""}
-              onClick={() => changeMode("part")}
-            >
-              <Box size={15} />
-              <span>Part</span>
-            </button>
-          </div>
-          {mode === "feature" && (
-            <select
-              aria-label="Feature selection filter"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value as FeatureFilter)}
-            >
-              <option value="auto">Auto feature</option>
-              <option value="face">Faces</option>
-              <option value="edge">Edges</option>
-              <option value="vertex">Vertices</option>
-            </select>
-          )}
-          <IconButton
-            title="Snap to vertices and edges"
-            active={snap}
-            onClick={() => setSnap(!snap)}
-          >
-            <Magnet size={17} />
-          </IconButton>
-        </div>
-        <div className="toolbar-cluster display-tools">
-          <RenderStyleSelect
-            value={display.renderStyle}
-            onChange={(renderStyle) => {
-              setDisplay((value) => ({ ...value, renderStyle }));
-              if (renderStyle !== "shaded") setRayTracing(false);
-            }}
-          />
-          <IconButton
-            title="Review notes"
-            active={panel === "review" && right}
-            onClick={() => {
-              setPanel("review");
-              setRight(true);
-            }}
-          >
-            <MessageSquare size={17} />
-          </IconButton>
-          <IconButton
-            title="Fit model · F"
-            onClick={() => viewer.current?.fit()}
-            disabled={!doc}
-          >
-            <Maximize size={17} />
-          </IconButton>
-          <IconButton
-            title="Show edges"
-            disabled={display.renderStyle !== "shaded" || rayTracing}
-            active={edges || display.renderStyle === "shaded-edges"}
-            onClick={() => setEdges(!edges)}
-          >
-            <Box size={17} />
-          </IconButton>
-          <IconButton
-            title="Ground grid"
-            disabled={rayTracing}
-            active={grid}
-            onClick={() => setGrid(!grid)}
-          >
-            <Grid3X3 size={17} />
-          </IconButton>
-          <IconButton
-            title="Section plane"
-            active={section}
-            onClick={() => setSection(!section)}
-            disabled={!doc}
-          >
-            <Scissors size={17} />
-          </IconButton>
-          <IconButton
-            title="Save screenshot"
-            onClick={() => void screenshot()}
-            disabled={!doc}
-          >
-            <Camera size={17} />
-          </IconButton>
-          <span className="toolbar-separator" />
-          <button
-            className={`text-tool ${ortho ? "active" : ""}`}
-            onClick={() => setOrtho(!ortho)}
-          >
-            {ortho ? "Orthographic" : "Perspective"}
-          </button>
-          <IconButton
-            title={right ? "Hide measurements" : "Show measurements"}
-            onClick={() => setRight(!right)}
-          >
-            {right ? (
-              <PanelRightClose size={17} />
-            ) : (
-              <PanelRightOpen size={17} />
+              {left ? (
+                <PanelLeftClose size={17} />
+              ) : (
+                <PanelLeftOpen size={17} />
+              )}
+            </IconButton>
+            <div className="segmented" aria-label="Selection mode">
+              <button
+                className={mode === "point" ? "active" : ""}
+                onClick={() => changeMode("point")}
+                title="Pick points · P"
+              >
+                <MousePointer2 size={15} />
+                <span>Point</span>
+              </button>
+              <button
+                className={mode === "feature" ? "active" : ""}
+                onClick={() => changeMode("feature")}
+                title="Pick CAD features · E"
+              >
+                <ScanLine size={15} />
+                <span>Feature</span>
+              </button>
+              <button
+                className={mode === "part" ? "active" : ""}
+                onClick={() => changeMode("part")}
+              >
+                <Box size={15} />
+                <span>Part</span>
+              </button>
+            </div>
+            {mode === "feature" && (
+              <select
+                aria-label="Feature selection filter"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value as FeatureFilter)}
+              >
+                <option value="auto">Auto feature</option>
+                <option value="face">Faces</option>
+                <option value="edge">Edges</option>
+                <option value="vertex">Vertices</option>
+              </select>
             )}
-          </IconButton>
+            <IconButton
+              title="Snap to vertices and edges"
+              active={snap}
+              onClick={() => setSnap(!snap)}
+            >
+              <Magnet size={17} />
+            </IconButton>
+          </div>
+          <div className="toolbar-cluster display-tools">
+            <RenderStyleSelect
+              value={display.renderStyle}
+              onChange={(renderStyle) => {
+                setDisplay((value) => ({ ...value, renderStyle }));
+                if (renderStyle !== "shaded") setRayTracing(false);
+              }}
+            />
+            <IconButton
+              title="Review notes"
+              active={panel === "review" && right}
+              onClick={() => {
+                setPanel("review");
+                setRight(true);
+              }}
+            >
+              <MessageSquare size={17} />
+            </IconButton>
+            <IconButton
+              title="Fit model · F"
+              onClick={() => viewer.current?.fit()}
+              disabled={!doc}
+            >
+              <Maximize size={17} />
+            </IconButton>
+            <IconButton
+              title="Show edges"
+              disabled={display.renderStyle !== "shaded" || rayTracing}
+              active={edges || display.renderStyle === "shaded-edges"}
+              onClick={() => setEdges(!edges)}
+            >
+              <Box size={17} />
+            </IconButton>
+            <IconButton
+              title="Ground grid"
+              disabled={rayTracing}
+              active={grid}
+              onClick={() => setGrid(!grid)}
+            >
+              <Grid3X3 size={17} />
+            </IconButton>
+            <IconButton
+              title="Section plane"
+              active={section}
+              onClick={() => setSection(!section)}
+              disabled={!doc}
+            >
+              <Scissors size={17} />
+            </IconButton>
+            <IconButton
+              title="Save screenshot"
+              onClick={() => void screenshot()}
+              disabled={!doc}
+            >
+              <Camera size={17} />
+            </IconButton>
+            <span className="toolbar-separator" />
+            <button
+              className={`text-tool ${ortho ? "active" : ""}`}
+              onClick={() => setOrtho(!ortho)}
+            >
+              {ortho ? "Orthographic" : "Perspective"}
+            </button>
+            <IconButton
+              title={right ? "Hide measurements" : "Show measurements"}
+              onClick={() => setRight(!right)}
+            >
+              {right ? (
+                <PanelRightClose size={17} />
+              ) : (
+                <PanelRightOpen size={17} />
+              )}
+            </IconButton>
+          </div>
         </div>
-      </div>
+      )}
       <main
-        className={`workspace ${left ? "with-tree" : ""} ${right ? "with-inspector" : ""}`}
+        className={`workspace ${doc && left ? "with-tree" : ""} ${doc && right ? "with-inspector" : ""}`}
       >
-        {left && (
+        {doc && left && (
           <aside className="assembly-panel">
             <div className="panel-heading">
               <h2>Assembly</h2>
@@ -1396,26 +1394,15 @@ function App() {
                 <X size={16} />
               </button>
             </div>
-            {doc ? (
-              <AssemblyTree
-                key={doc.name + doc.importMs}
-                doc={doc}
-                hidden={hidden}
-                selected={selectedPart}
-                onToggle={toggleHidden}
-                onSelect={selectParts}
-                onIsolate={isolate}
-              />
-            ) : (
-              <div className="empty-panel">
-                <Layers size={28} />
-                <p>
-                  Your model’s structure,
-                  <br />
-                  one part at a time.
-                </p>
-              </div>
-            )}
+            <AssemblyTree
+              key={doc.name + doc.importMs}
+              doc={doc}
+              hidden={hidden}
+              selected={selectedPart}
+              onToggle={toggleHidden}
+              onSelect={selectParts}
+              onIsolate={isolate}
+            />
             {doc && (
               <div className="assembly-controls">
                 <label>
@@ -1604,34 +1591,19 @@ function App() {
             </>
           )}
           {!doc && !loading && (
-            <div
-              className={`welcome${recent.length ? " welcome-returning" : ""}`}
-            >
-              <div className="welcome-symbol">
-                <Box size={48} strokeWidth={1} />
-                <span className="welcome-dimension">80.000</span>
+            <div className="welcome">
+              <div className="welcome-actions">
+                <button
+                  className="button primary large"
+                  onClick={() => void open()}
+                >
+                  <FolderOpen size={18} /> Open file
+                </button>
+                <button className="button subtle" onClick={demo}>
+                  Sample model <ChevronRight size={15} />
+                </button>
               </div>
-              <div className="eyebrow">SHENZHEN 3D / ENGINEERING VIEWER</div>
-              <h1>
-                Every detail.
-                <br />
-                <span>Within reach.</span>
-              </h1>
-              <p>
-                Open a model. Pick two points.
-                <br />
-                Go from geometry to understanding.
-              </p>
-              <button
-                className="button primary large"
-                onClick={() => void open()}
-              >
-                <Upload size={18} /> Open a model or drawing{" "}
-                <ArrowUpRight size={16} />
-              </button>
-              <button className="demo-button" onClick={demo}>
-                Explore a sample model <ChevronRight size={15} />
-              </button>
+              <small className="drop-hint">Drop files here</small>
               <section className="recent" aria-label="Recent files">
                 <span>RECENT FILES</span>
                 {recent.length ? (
@@ -1656,18 +1628,9 @@ function App() {
                     </button>
                   ))
                 ) : (
-                  <p>Files you open will appear here.</p>
+                  <p>No recent files</p>
                 )}
               </section>
-              <div className="format-list">
-                STEP <span>·</span> STL <span>·</span> OBJ <span>·</span> 3MF{" "}
-                <span>·</span> GLTF <span>·</span> DWG <span>·</span> DXF{" "}
-                <span>·</span> SVG
-              </div>
-              <small className="drop-hint">
-                Drop files anywhere. Include textures and companion files
-                together.
-              </small>
             </div>
           )}
           {section && doc && (
@@ -1707,7 +1670,6 @@ function App() {
             <div className="loading-overlay" role="status">
               <LoaderCircle className="spin" size={30} />
               <h2>{loading || "Starting 3D viewer…"}</h2>
-              <p>Geometry is processed locally on your device.</p>
               <div className="indeterminate-progress" />
               <button className="button subtle" onClick={cancel}>
                 Cancel import
@@ -1728,7 +1690,7 @@ function App() {
             </div>
           )}
         </section>
-        {right && (
+        {doc && right && (
           <aside className="inspector">
             <div className="panel-heading inspector-tabs">
               <button
@@ -2005,19 +1967,6 @@ function App() {
                   </>
                 ) : (
                   <div className="measure-empty">
-                    <Move3D size={32} strokeWidth={1} />
-                    <h3>
-                      {points.length
-                        ? "One more selection."
-                        : "A little precision goes a long way."}
-                    </h3>
-                    <p>
-                      {tool === "path"
-                        ? "Trace a route over a connected mesh. Pick two points on the same part."
-                        : tool === "angle"
-                          ? "Pick three points (B is the vertex), or two CAD features."
-                          : "Pick two points to see the shortest distance and each axis component."}
-                    </p>
                     <div className="empty-deltas">
                       <span className="axis-x">ΔX —</span>
                       <span className="axis-y">ΔY —</span>
@@ -2073,8 +2022,7 @@ function App() {
                 )}
                 {points.length > 0 && (
                   <button className="clear-button" onClick={clear}>
-                    <RotateCcw size={14} /> Start a new measurement{" "}
-                    <kbd>Esc</kbd>
+                    <RotateCcw size={14} /> Clear measurement <kbd>Esc</kbd>
                   </button>
                 )}
                 <details className="units-details">
@@ -2202,12 +2150,7 @@ function App() {
                 ) : (
                   <div className="empty-panel">
                     <Ruler size={28} />
-                    <h3>Keep the useful numbers.</h3>
-                    <p>
-                      Saved measurements stay in this session.
-                      <br />
-                      Export them as CSV or JSON to keep a record.
-                    </p>
+                    <p>No saved measurements</p>
                   </div>
                 )}
               </div>
@@ -2228,24 +2171,26 @@ function App() {
         )}
       </main>
       <footer className="status-bar">
-        <span className="status-main">
-          {hover || (!doc ? "Ready to explore" : doc.name)}
-        </span>
+        <span className="status-main">{hover || doc?.name}</span>
         <span>
           {doc?.importMs
             ? `Imported in ${(doc.importMs / 1000).toFixed(2)}s`
-            : "Local-first"}
+            : ""}
         </span>
-        <span className="status-navigation">
-          {usingNavigationDetail
-            ? "Navigation detail · full detail when still"
-            : navigation !== "mouse"
-              ? "Two-finger pan · pinch zoom"
-              : "Left/middle orbit · right-drag pan · scroll zoom"}
-        </span>
-        <button onClick={() => settings.current?.showModal()}>
-          {unit} <ChevronDown size={11} />
-        </button>
+        {doc && (
+          <span className="status-navigation">
+            {usingNavigationDetail
+              ? "Navigation detail · full detail when still"
+              : navigation !== "mouse"
+                ? "Two-finger pan · pinch zoom"
+                : "Left/middle orbit · right-drag pan · scroll zoom"}
+          </span>
+        )}
+        {doc && (
+          <button onClick={() => settings.current?.showModal()}>
+            {unit} <ChevronDown size={11} />
+          </button>
+        )}
         {window.shenzhenUpdates ? (
           <button
             data-open-updates
@@ -2293,18 +2238,14 @@ function App() {
       )}
       <dialog ref={help} className="dialog">
         <div className="dialog-heading">
-          <h2>Make yourself at home.</h2>
+          <h2>Help & shortcuts</h2>
           <IconButton title="Close help" onClick={() => help.current?.close()}>
             <X size={20} />
           </IconButton>
         </div>
-        <p>
-          A lightweight workbench for your geometry. All file processing happens
-          on your device.
-        </p>
         <div className="help-columns">
           <div>
-            <h3>Move around</h3>
+            <h3>Navigation</h3>
             <dl>
               <dt>Orbit</dt>
               <dd>Left or middle drag / one finger</dd>
@@ -2314,7 +2255,7 @@ function App() {
               <dd>Scroll / pinch</dd>
               <dt>Set orbit center</dt>
               <dd>Double-click a surface</dd>
-              <dt>Fit everything</dt>
+              <dt>Fit model</dt>
               <dd>
                 <kbd>F</kbd>
               </dd>
@@ -2325,7 +2266,7 @@ function App() {
             </dl>
           </div>
           <div>
-            <h3>Measure naturally</h3>
+            <h3>Measurement</h3>
             <dl>
               <dt>Point mode</dt>
               <dd>
@@ -2368,13 +2309,13 @@ function App() {
             className="button primary"
             onClick={() => help.current?.close()}
           >
-            Got it
+            Close
           </button>
         </div>
       </dialog>
       <dialog ref={settings} className="dialog settings-dialog">
         <div className="dialog-heading">
-          <h2>Your workbench</h2>
+          <h2>Settings</h2>
           <IconButton
             title="Close settings"
             onClick={() => settings.current?.close()}
@@ -2476,8 +2417,7 @@ function App() {
             />
           </label>
           <p className="render-status">
-            Progressively refines lighting while still. Navigation uses the fast
-            shaded view. The ground grid is omitted from traced views.
+            Uses shaded mode during navigation. The ground grid is excluded.
           </p>
           {rayTracing && (
             <>
@@ -2492,7 +2432,7 @@ function App() {
                 >
                   <option value={32}>32 · Preview</option>
                   <option value={128}>128 · Balanced</option>
-                  <option value={512}>512 · Refined</option>
+                  <option value={512}>512</option>
                 </select>
               </label>
               <label>
@@ -2504,8 +2444,8 @@ function App() {
                     setRayResolution(Number(event.target.value) as 0.5 | 1)
                   }
                 >
-                  <option value={0.5}>Half · Faster</option>
-                  <option value={1}>Full · Sharper</option>
+                  <option value={0.5}>Half</option>
+                  <option value={1}>Full</option>
                 </select>
               </label>
               <p className="render-status" role="status">
@@ -2513,9 +2453,9 @@ function App() {
                   (rayState?.status === "preparing"
                     ? "Preparing geometry for GPU tracing…"
                     : rayState?.status === "ready"
-                      ? `Refined · ${rayState.samples} samples`
+                      ? `Complete · ${rayState.samples} samples`
                       : rayState?.status === "rendering"
-                        ? `Refining · ${rayState.samples} / ${rayState.target} samples`
+                        ? `Rendering · ${rayState.samples} / ${rayState.target} samples`
                         : "Starting GPU ray tracing…")}
               </p>
               {rayState?.status === "rendering" && (
@@ -2535,13 +2475,13 @@ function App() {
               className={theme === "dark" ? "active" : ""}
               onClick={() => setTheme("dark")}
             >
-              <Moon size={15} /> Graphite
+              <Moon size={15} /> Dark
             </button>
             <button
               className={theme === "light" ? "active" : ""}
               onClick={() => setTheme("light")}
             >
-              <Sun size={15} /> Paper
+              <Sun size={15} /> Light
             </button>
           </div>
         </label>
@@ -2571,12 +2511,12 @@ function App() {
               setNavigationDetail(e.target.value as "auto" | "full")
             }
           >
-            <option value="auto">Automatic · smoother large models</option>
-            <option value="full">Full detail at all times</option>
+            <option value="auto">Automatic</option>
+            <option value="full">Full detail</option>
           </select>
           <small>
-            Automatic adjusts distant geometry while moving. Full detail returns
-            when still; measurements always use the original model.
+            Reduces distant detail during navigation. Measurements use the
+            original geometry.
           </small>
         </label>
         <label>
@@ -2601,8 +2541,7 @@ function App() {
           </select>
         </label>
         <p className="muted">
-          Tessellation changes apply to the next import. Exact CAD feature
-          measurements use the original geometry at every quality setting.
+          Applies to the next import. Exact CAD measurements are unaffected.
         </p>
         <div className="dialog-footer">
           <button

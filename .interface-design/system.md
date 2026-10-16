@@ -12,3 +12,5 @@ Use existing semantic CSS tokens: --bench, --surface, --raised, --inset, --line,
 Review: third inspector tab alongside Measure and Saved. Numbered jade pins connect list entries to model anchors. Inline note editor keeps the model visible. Show target kind and part name above the note. Resolve, edit and delete use native buttons. Sharing saves a portable project containing source files, annotations and measurements; no implicit upload.
 
 Appearance: one labeled render-style selector and a lighting disclosure. Shaded remains the default; drawing modes expose hidden-line intent in their labels. Progressive ray tracing is opt-in with sample progress, cancellation and a clear device/model capability reason. Navigation continues using the fast raster renderer.
+
+Copy: use descriptive control labels and necessary status or measurement information. No slogans, promotional headings, reassurance badges or decorative numbers. The empty workspace shows file actions and recent files; model tools appear only with a document. Avoid instructions that merely repeat a nearby control.

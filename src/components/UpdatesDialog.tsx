@@ -48,20 +48,20 @@ export default function UpdatesDialog({ onClose }: { onClose: () => void }) {
   const locked = busy || state?.status === "ready";
   const title =
     state?.status === "installing"
-      ? "Preparing to restart"
+      ? "Installing update"
       : state?.status === "ready"
-        ? "Ready when you are"
+        ? "Update downloaded"
         : state?.status === "available"
           ? `Version ${state.availableVersion} is available`
           : state?.status === "downloading"
-            ? "Downloading your update"
+            ? "Downloading update"
             : state?.status === "checking"
               ? "Checking GitHub Releases"
               : state?.status === "needs-auth"
-                ? "Connect to get updates"
+                ? "GitHub access required"
                 : state?.status === "error"
-                  ? "Update check needs attention"
-                  : "Keep your workbench current";
+                  ? "Update unavailable"
+                  : `Version ${state?.version || "…"}`;
   return (
     <dialog
       ref={modal}
@@ -72,9 +72,6 @@ export default function UpdatesDialog({ onClose }: { onClose: () => void }) {
     >
       <div className="dialog-heading">
         <div>
-          <span className="updates-eyebrow">
-            SHENZHEN 3D · {state ? `v${state.version}` : "UPDATES"}
-          </span>
           <h2 id="updates-heading">Updates</h2>
         </div>
         <button
@@ -97,10 +94,7 @@ export default function UpdatesDialog({ onClose }: { onClose: () => void }) {
         </div>
         <div>
           <h3>{title}</h3>
-          <p>
-            {state?.message ||
-              "New versions come directly from the team's GitHub releases."}
-          </p>
+          {state?.message && <p>{state.message}</p>}
         </div>
       </div>
       {state?.status === "downloading" && (
@@ -150,18 +144,15 @@ export default function UpdatesDialog({ onClose }: { onClose: () => void }) {
               </button>
             )}
             <span className="muted">
-              {state.status === "ready"
-                ? "Save your commented project before restarting."
-                : state.lastChecked
-                  ? `Last checked ${new Date(state.lastChecked).toLocaleString()}`
-                  : "Your models stay on this computer."}
+              {state.lastChecked
+                ? `Last checked ${new Date(state.lastChecked).toLocaleString()}`
+                : ""}
             </span>
           </div>
           <div className="updates-preferences">
             <label className="updates-toggle">
               <span>
-                <strong>Check automatically</strong>
-                <small>Once a day, after the app has opened.</small>
+                <strong>Check daily</strong>
               </span>
               <input
                 type="checkbox"
@@ -175,9 +166,6 @@ export default function UpdatesDialog({ onClose }: { onClose: () => void }) {
             <label className="updates-toggle">
               <span>
                 <strong>Include preview releases</strong>
-                <small>
-                  Get the latest improvements before stable releases.
-                </small>
               </span>
               <input
                 type="checkbox"
@@ -217,7 +205,6 @@ export default function UpdatesDialog({ onClose }: { onClose: () => void }) {
             </label>
             {state.connected ? (
               <p className="updates-auth-row">
-                <span>Access is stored securely on this Mac.</span>
                 <button
                   className="button"
                   disabled={locked}
@@ -229,15 +216,14 @@ export default function UpdatesDialog({ onClose }: { onClose: () => void }) {
             ) : (
               <>
                 <p className="muted">
-                  These releases are private. Connect an account with access to
-                  the selected repository.
+                  Requires access to the selected private repository.
                 </p>
                 <button
                   className="button"
                   disabled={locked || !state.supported}
                   onClick={() => void run(() => api.useGitHubCLI())}
                 >
-                  <KeyRound size={15} /> Use my GitHub CLI login
+                  <KeyRound size={15} /> Use GitHub CLI login
                 </button>
                 <form
                   onSubmit={(event) => {
@@ -248,7 +234,7 @@ export default function UpdatesDialog({ onClose }: { onClose: () => void }) {
                   }}
                 >
                   <label htmlFor="update-token">
-                    Or use a read-only access token
+                    Access token
                     <input
                       id="update-token"
                       type="password"
@@ -261,15 +247,14 @@ export default function UpdatesDialog({ onClose }: { onClose: () => void }) {
                     />
                   </label>
                   <small>
-                    Grant Contents read access to this repository. Your token
-                    stays encrypted on this Mac.
+                    Requires Contents: read permission for this repository.
                   </small>
                   <button
                     className="button"
                     type="submit"
                     disabled={locked || !token.trim() || !state.supported}
                   >
-                    Connect securely
+                    Connect
                   </button>
                 </form>
               </>

@@ -121,7 +121,7 @@ export function ReviewPanel(props: Props) {
           </div>
           <textarea
             aria-label="Annotation text"
-            placeholder="What should someone know here?"
+            placeholder="Note"
             maxLength={4000}
             value={text}
             onChange={(event) => setText(event.target.value)}
@@ -139,12 +139,7 @@ export function ReviewPanel(props: Props) {
       {!props.notes.length && !props.placing && (
         <div className="empty-panel review-empty">
           <MessageSquarePlus size={28} />
-          <h3>Leave a note on the model.</h3>
-          <p>
-            Mark a point, feature or whole part.
-            <br />
-            Share the model and comments in one file.
-          </p>
+          <p>No notes</p>
         </div>
       )}
       {!!props.notes.length && (
@@ -267,10 +262,6 @@ export function ReviewPanel(props: Props) {
           </ol>
         </>
       )}
-      <p className="review-footnote">
-        Share a project to keep the model, notes and saved measurements
-        together.
-      </p>
     </div>
   );
 }
