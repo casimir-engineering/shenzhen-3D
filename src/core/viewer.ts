@@ -256,9 +256,9 @@ export class Viewer {
     c.zoomToCursor = true;
     c.screenSpacePanning = true;
     c.rotateSpeed = 0.75;
-    c.zoomSpeed = 1.1;
+    c.zoomSpeed = 1.3;
     c.mouseButtons.LEFT = this.model?.is2D ? T.MOUSE.PAN : T.MOUSE.ROTATE;
-    c.mouseButtons.MIDDLE = c.mouseButtons.LEFT;
+    c.mouseButtons.MIDDLE = T.MOUSE.PAN;
     c.touches.ONE = T.TOUCH.ROTATE;
     c.touches.TWO = T.TOUCH.DOLLY_PAN;
     c.addEventListener("change", this.cameraChanged);
@@ -725,7 +725,7 @@ export class Viewer {
       this.bounds.min.z - this.radius * 0.002,
     );
     this.controls.mouseButtons.LEFT = doc.is2D ? T.MOUSE.PAN : T.MOUSE.ROTATE;
-    this.controls.mouseButtons.MIDDLE = this.controls.mouseButtons.LEFT;
+    this.controls.mouseButtons.MIDDLE = T.MOUSE.PAN;
     this.controls.touches.ONE = doc.is2D ? T.TOUCH.PAN : T.TOUCH.ROTATE;
     this.transformsDirty = true;
     this.applyOptions(this.options);

@@ -2183,7 +2183,7 @@ function App() {
               ? "Navigation detail · full detail when still"
               : navigation !== "mouse"
                 ? "Two-finger pan · pinch zoom"
-                : "Left/middle orbit · right-drag pan · scroll zoom"}
+                : "Left-drag orbit · middle/right-drag pan · scroll zoom"}
           </span>
         )}
         {doc && (
@@ -2248,9 +2248,9 @@ function App() {
             <h3>Navigation</h3>
             <dl>
               <dt>Orbit</dt>
-              <dd>Left or middle drag / one finger</dd>
+              <dd>Left drag / one finger</dd>
               <dt>Pan</dt>
-              <dd>Right drag / two fingers</dd>
+              <dd>Middle or right drag / two fingers</dd>
               <dt>Zoom</dt>
               <dd>Scroll / pinch</dd>
               <dt>Set orbit center</dt>
