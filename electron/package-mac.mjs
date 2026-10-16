@@ -38,7 +38,7 @@ async function fingerprint(directory, relative = "", result = {}) {
   }
   return result;
 }
-/** Stage a thin main-process manifest; builder traverses the linked installed production graph. */
+/** Stage a self-contained, lock-verified production dependency graph. */
 export async function stageRuntime(staging, pkg) {
   const lockBytes = await fs.readFile(path.join(root, "package-lock.json"));
   const lock = JSON.parse(lockBytes);
@@ -158,7 +158,25 @@ export async function stageRuntime(staging, pkg) {
       2,
     ) + "\n",
   );
-  await fs.symlink(modules, path.join(staging, "node_modules"), "dir");
+  // A symlink to the root installation is insufficient: builder's npm traversal
+  // can discover the graph but lose transitive package paths during ASAR copying.
+  // Copy only the verified closure, keeping Node's installed nesting intact.
+  const stagedModules = path.join(staging, "node_modules");
+  if (await exists(stagedModules))
+    throw Error("Runtime staging must start without an existing node_modules.");
+  for (const key of [...inventory.keys()].sort()) {
+    const source = path.join(root, key),
+      target = path.join(staging, key);
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.cp(source, target, {
+      recursive: true,
+      dereference: true,
+      // Nested packages are copied separately only if they belong to the closure.
+      filter: (file) =>
+        file === source ||
+        !path.relative(source, file).split(path.sep).includes("node_modules"),
+    });
+  }
   return {
     packageLockSha256: hash(lockBytes),
     runtimeFiles: production,
@@ -167,10 +185,64 @@ export async function stageRuntime(staging, pkg) {
     ),
   };
 }
+export function verifyRuntimeArchive(archive, provenance) {
+  const asar = require("@electron/asar"),
+    semver = require("semver");
+  const archiveFiles = asar.listPackage(archive);
+  for (const file of Object.keys(provenance.runtimeFiles))
+    if (
+      !archiveFiles.includes("/" + file) ||
+      hash(asar.extractFile(archive, file)) !== provenance.runtimeFiles[file]
+    )
+      throw Error(`Packaged runtime helper is missing or changed: ${file}`);
+  if (archiveFiles.some((file) => /\.(?:test|spec)\.cjs$/.test(file)))
+    throw Error("Test helpers must not be packaged.");
+  const packaged = new Set(),
+    metadataByDirectory = new Map();
+  for (const file of archiveFiles.filter((file) =>
+    /^\/node_modules\/.*\/package\.json$/.test(file),
+  )) {
+    const metadata = JSON.parse(asar.extractFile(archive, file.slice(1)));
+    packaged.add(`${metadata.name}@${metadata.version}`);
+    metadataByDirectory.set(path.posix.dirname(file.slice(1)), metadata);
+  }
+  for (const dep of provenance.runtimeDependencies)
+    if (!packaged.has(`${dep.name}@${dep.version}`))
+      throw Error(
+        `Packaged updater dependency is missing: ${dep.name}@${dep.version}`,
+      );
+  // Builder may hoist nested dependencies. Validate Node resolution inside the
+  // archive rather than assuming installed paths or allowing workspace fallback.
+  metadataByDirectory.set(
+    "",
+    JSON.parse(asar.extractFile(archive, "package.json")),
+  );
+  for (const [directory, metadata] of metadataByDirectory) {
+    for (const [name, range] of Object.entries(metadata.dependencies || {})) {
+      let current = directory,
+        resolved;
+      for (;;) {
+        resolved = metadataByDirectory.get(
+          path.posix.join(current, "node_modules", name),
+        );
+        if (resolved || !current) break;
+        const parent = path.posix.dirname(current);
+        current = parent === "." ? "" : parent;
+      }
+      if (!resolved || !semver.satisfies(resolved.version, range))
+        throw Error(
+          `Packaged runtime cannot resolve ${name}@${range} from ${directory || "app"}`,
+        );
+    }
+  }
+  return {
+    packagedDependencyCount: packaged.size,
+    packages: [...packaged].sort(),
+  };
+}
 async function verifyPackage(output, pkg, provenance) {
   const config = require("../electron-builder.cjs"),
-    yaml = require("js-yaml"),
-    asar = require("@electron/asar");
+    yaml = require("js-yaml");
   const resources = path.join(
     output,
     "mac-arm64",
@@ -178,25 +250,10 @@ async function verifyPackage(output, pkg, provenance) {
     "Contents",
     "Resources",
   );
-  const archive = path.join(resources, "app.asar"),
-    archiveFiles = asar.listPackage(archive);
-  for (const file of Object.keys(provenance.runtimeFiles))
-    if (!archiveFiles.includes("/" + file))
-      throw Error(`Packaged runtime helper is missing: ${file}`);
-  if (archiveFiles.some((file) => /\.(?:test|spec)\.cjs$/.test(file)))
-    throw Error("Test helpers must not be packaged.");
-  const packaged = new Set();
-  for (const file of archiveFiles.filter((file) =>
-    /^\/node_modules\/.*\/package\.json$/.test(file),
-  )) {
-    const metadata = JSON.parse(asar.extractFile(archive, file.slice(1)));
-    packaged.add(`${metadata.name}@${metadata.version}`);
-  }
-  for (const dep of provenance.runtimeDependencies)
-    if (!packaged.has(`${dep.name}@${dep.version}`))
-      throw Error(
-        `Packaged updater dependency is missing: ${dep.name}@${dep.version}`,
-      );
+  const runtime = verifyRuntimeArchive(
+    path.join(resources, "app.asar"),
+    provenance,
+  );
   const feed = yaml.load(
     await fs.readFile(path.join(resources, "app-update.yml"), "utf8"),
   );
@@ -240,7 +297,7 @@ async function verifyPackage(output, pkg, provenance) {
     throw Error("Mac updater legacy ZIP fingerprint is inconsistent.");
   return {
     artifacts,
-    packagedDependencyCount: packaged.size,
+    packagedDependencyCount: runtime.packagedDependencyCount,
     updateMetadata: {
       file: "latest-mac.yml",
       sha256: hash(await fs.readFile(path.join(output, "latest-mac.yml"))),

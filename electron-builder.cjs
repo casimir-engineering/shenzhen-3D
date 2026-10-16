@@ -4,6 +4,27 @@ module.exports = {
   productName: "Shenzhen 3D",
   asar: true,
   npmRebuild: false,
+  // Fail on missing runtime dependencies before an expensive signing pass.
+  async afterPack(context) {
+    const fs = require("node:fs/promises");
+    const { verifyRuntimeArchive } = await import("./electron/package-mac.mjs");
+    const provenance = JSON.parse(
+      await fs.readFile(
+        path.join(context.packager.projectDir, "build-info.json"),
+        "utf8",
+      ),
+    );
+    verifyRuntimeArchive(
+      path.join(
+        context.appOutDir,
+        `${module.exports.productName}.app`,
+        "Contents",
+        "Resources",
+        "app.asar",
+      ),
+      provenance,
+    );
+  },
   files: [
     "dist/**/*",
     "electron/**/*.cjs",
