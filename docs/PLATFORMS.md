@@ -1,6 +1,6 @@
 # Platforms and packaging
 
-Shenzhen 3D uses one local React/Three.js viewer and a Tauri 2 native shell. Files are parsed locally. Native applications package the same static assets as the web application; they do not need a running web server.
+Shenzhen 3D uses one local React/Three.js viewer. The primary macOS application uses Electron for Chromium GPU rendering and native trackpad classification/rotation; Windows, Linux, Android and iOS use a Tauri 2 native shell. Files are parsed locally. Native applications package the same static assets as the web application; they do not need a running web server.
 
 | Platform | Package | Build command |
 | --- | --- | --- |
@@ -12,6 +12,21 @@ Shenzhen 3D uses one local React/Three.js viewer and a Tauri 2 native shell. Fil
 | iOS/iPadOS 15+ | App archive, simulator app | `node scripts/platform-build.mjs ios --archive-only` |
 
 Build on the target desktop operating system. Windows uses WebView2; its installer bootstraps the runtime when needed. Linux requires WebKitGTK 4.1. Browsers and native webviews need WebGL2 and WebAssembly. Complex CAD documents require enough memory for both the CAD kernel and triangulated geometry; mobile devices generally have lower limits.
+
+## 0.1.9 build checkpoint
+
+Runtime source: `4f7dbf54ae08bb9c0b29d08e41a4808871292303`. Builds use 101 frozen frontend files with `assets/index-C5HXuWIs.js`. The current packages are being finalized for release; the historical records below describe earlier versions.
+
+| Platform | Build and verification |
+| --- | --- |
+| macOS Apple Silicon | Signed Chromium app and DMG; packaged runtime, file opening, native addon and integrity checks passed. Apple notarization is pending. |
+| Windows x64 | EXE and MSI built locally in Windows; executable architecture/version and embedded frontend checked; isolated startup passed for 15 seconds. Unsigned. |
+| Linux ARM64 | Debian, RPM and AppImage built locally in Ubuntu; final AppImage startup passed for 15 seconds under Xvfb. Package permissions and extracted payloads passed verification. |
+| Android ARM64 | Development-signed APK and unsigned AAB built; APK signature and 16 KB alignment passed. Installed and launched in an API 35 emulator. Native pan/pinch unverified. |
+| iOS ARM64 | Simulator archive and development-signed IPA built. IPA covers the existing 19 registered devices, with profile expiry 15 October 2027. Simulator rendered the demo and measured two selected points; drag/pinch unverified. |
+| Web | Static ZIP verified against every frozen frontend file. Production browser tests passed 33 cases with three expected viewport-specific skips. No hosted deployment. |
+
+GitHub Actions jobs could not start because of account billing or spending limits, so these packages were built locally. The isolated Linux x64 Rosetta build failed during chroot setup; there is no 0.1.9 Linux x64 artifact. Native startup checks do not establish full interaction coverage. No physical phone, tablet or Intel Mac was tested. Android's development signature and the registered-device IPA are not store distributions.
 
 ## Local development
 
@@ -66,7 +81,7 @@ An unsigned archive proves compilation but cannot be installed on an iPhone. For
 - Cross-platform build and runtime results are recorded in the project validation report and CI logs. A configured packaging job alone is not evidence of a successful build or a device runtime test.
 
 
-### Native runtime checks (16 October 2026)
+### Historical 0.1.0 native runtime checks (16 October 2026)
 
 The production macOS app imported the sample STEP assembly locally in 2.76 seconds in the final signed build. Native Open and Save dialogs worked; a viewport PNG was exported. The native Settings shortcut (Command-comma) opened the settings panel. The universal build includes Apple Silicon and Intel binaries. This local runtime test used Apple Silicon.
 
@@ -83,7 +98,7 @@ The optimized local Android ARM64 APK is development-signed for direct installat
 CI includes Linux and Windows startup smoke tests that check whether the packaged executable remains alive for 15 seconds (Linux under Xvfb). These checks do not establish that rendering, file dialogs, or interaction work on those systems. The web CI job also runs the real CAD-kernel measurement fixtures with `npm run test:cad`.
 
 
-### Final local deliverables
+### Historical 0.1.0 local deliverables
 
 The final native packages use `index-BsJDuriz.js` and `index-B8pKqrJx.css`, from the frozen production assets with `dist/index.html` SHA-256 `711dcf41688d1d9b18a7bec00657378539ddc717158caa0dbbf8545685f7824c`. The embedded JavaScript filename was checked in both macOS architectures, Android APK/AAB, iOS simulator binary, and the exported device IPA.
 
