@@ -64,6 +64,131 @@ function command(selector) {
 }
 let updateManager;
 let updateTimer;
+let recentFileStore;
+const pendingOpenFiles = [];
+let fileTargetId;
+function fileTarget(preferFocused = false) {
+  const windows = BrowserWindow.getAllWindows().filter(
+    (window) => !window.isDestroyed() && trusted(window.webContents.getURL()),
+  );
+  if (preferFocused) {
+    const focused = windows.find(
+      (window) => window === BrowserWindow.getFocusedWindow(),
+    );
+    if (focused) return focused;
+  }
+  return (
+    windows.find((window) => window.id === fileTargetId) ||
+    windows.find((window) => window === BrowserWindow.getFocusedWindow()) ||
+    windows[0]
+  );
+}
+const associatedFormats = new Set([
+  "sz3d",
+  "step",
+  "stp",
+  "iges",
+  "igs",
+  "brep",
+  "brp",
+  "stl",
+  "obj",
+  "3mf",
+  "glb",
+  "gltf",
+  "ply",
+  "off",
+  "wrl",
+  "vrml",
+  "fbx",
+  "dae",
+  "dxf",
+  "dwg",
+  "svg",
+]);
+function queueOpenFiles(paths) {
+  const selected = paths
+    .filter(
+      (p) =>
+        typeof p === "string" &&
+        associatedFormats.has(path.extname(p).slice(1).toLowerCase()),
+    )
+    .map((p) => path.resolve(p))
+    .slice(0, 256);
+  if (!selected.length) return;
+  pendingOpenFiles.push(selected);
+  if (pendingOpenFiles.length > 16) pendingOpenFiles.shift();
+  const window = fileTarget(true);
+  if (window) {
+    fileTargetId = window.id;
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+    window.webContents.send("shenzhen-open-files-available");
+  }
+}
+app.on("open-file", (event, file) => {
+  event.preventDefault();
+  queueOpenFiles([file]);
+});
+queueOpenFiles(process.argv.slice(1));
+if (!app.requestSingleInstanceLock()) app.quit();
+else
+  app.on("second-instance", (_event, argv, workingDirectory) =>
+    queueOpenFiles(
+      argv
+        .slice(1)
+        .map((file) =>
+          file.startsWith("-") ? file : path.resolve(workingDirectory, file),
+        ),
+    ),
+  );
+let openFilesQueue = Promise.resolve();
+ipcMain.handle("shenzhen-open-files", (event) => {
+  if (
+    event.senderFrame !== event.sender.mainFrame ||
+    !trusted(event.senderFrame?.url)
+  )
+    throw Error("File request is not allowed");
+  const result = openFilesQueue.then(async () => {
+    const window = fileTarget();
+    if (!window || window.webContents !== event.sender) return [];
+    fileTargetId = window.id;
+    recentFileStore ||= require("./recent-files.cjs").createRecentFileStore(
+      app.getPath("userData"),
+    );
+    const batches = [];
+    while (pendingOpenFiles.length) {
+      const paths = pendingOpenFiles.shift();
+      const name = path.basename(paths[0]),
+        format = path.extname(name).slice(1).toLowerCase();
+      const grant = await recentFileStore.remember(paths, name, format);
+      batches.push(
+        (await recentFileStore.open(grant.id)).map((file) => ({
+          ...file,
+          recentId: grant.id,
+        })),
+      );
+    }
+    return batches;
+  });
+  openFilesQueue = result.catch(() => {});
+  return result;
+});
+ipcMain.handle("shenzhen-recent-files", (event, method, value) => {
+  if (
+    event.senderFrame !== event.sender.mainFrame ||
+    !trusted(event.senderFrame?.url) ||
+    !["list", "remember", "open", "remove", "touch"].includes(method)
+  )
+    throw Error("Recent file request is not allowed");
+  recentFileStore ||= require("./recent-files.cjs").createRecentFileStore(
+    app.getPath("userData"),
+  );
+  if (method === "remember")
+    return recentFileStore.remember(value?.paths, value?.name, value?.format);
+  return recentFileStore[method](value);
+});
 function updates() {
   if (!updateManager) {
     const { createUpdateManager } = require("./update-manager.cjs");
