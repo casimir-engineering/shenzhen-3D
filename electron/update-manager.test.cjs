@@ -27,6 +27,7 @@ async function fixture(t, changes = {}) {
     auth: [],
     dialogs: [],
     encrypted: 0,
+    decrypted: 0,
   };
   const states = [];
   let executable = path.join(
@@ -57,7 +58,10 @@ async function fixture(t, changes = {}) {
       calls.encrypted++;
       return Buffer.from([...token].reverse().join(""));
     },
-    decryptString: (bytes) => [...bytes.toString()].reverse().join(""),
+    decryptString: (bytes) => {
+      calls.decrypted++;
+      return [...bytes.toString()].reverse().join("");
+    },
   };
   const app = {
     isPackaged: true,
@@ -68,6 +72,14 @@ async function fixture(t, changes = {}) {
     app,
     safeStorage: storage,
     platform: "darwin",
+    releaseOwner: "casimir-engineering",
+    readPackagedFeed: async () => ({
+      provider: "github",
+      owner: changes.releaseOwner ?? "casimir-engineering",
+      repo: "shenzhen-3D",
+      private: true,
+      channel: "latest",
+    }),
     onState: (state) => states.push(state),
     dialog: {
       showMessageBox: async (options) => {
@@ -85,6 +97,11 @@ async function fixture(t, changes = {}) {
     },
     ...changes,
   };
+  if (changes.initialSettings)
+    await fs.writeFile(
+      path.join(directory, "updates.json"),
+      JSON.stringify(changes.initialSettings),
+    );
   const manager = createUpdateManager(options);
   t.after(async () => {
     manager.dispose();
@@ -134,7 +151,7 @@ test("missing authentication never falls back to a public GitHub feed", async (t
 });
 
 test("verified private access is encrypted, atomically persisted and restored", async (t) => {
-  const f = await fixture(t);
+  const f = await fixture(t, { releaseOwner: "mirror-org" });
   await f.manager.configure({ automatic: false, repository: "mirror-org" });
   const state = await f.manager.connect(TEST_TOKEN);
   assert.equal(state.connected, true);
@@ -482,4 +499,119 @@ test("automatic network failures do not surface an error dialog or raw diagnosti
   assert.equal(f.manager.getState().status, "idle");
   assert.equal(f.calls.dialogs.length, 0);
   assert.equal(JSON.stringify(f.states).includes(TEST_TOKEN), false);
+});
+
+for (const releaseOwner of ["casimir-engineering", "mirror-org"]) {
+  test(`${releaseOwner} is fixed for fresh settings, authentication and update feed`, async (t) => {
+    const f = await fixture(t, { releaseOwner });
+    await f.manager.configure({ automatic: false, repository: releaseOwner });
+    assert.equal(f.manager.getState().repository, releaseOwner);
+    await assert.rejects(
+      f.manager.configure({
+        repository:
+          releaseOwner === "mirror-org"
+            ? "casimir-engineering"
+            : "mirror-org",
+      }),
+      /fixed to this build/,
+    );
+    await f.manager.connect(TEST_TOKEN);
+    await f.manager.check();
+    assert.equal(f.updater.feed.owner, releaseOwner);
+    assert.ok(
+      f.calls.auth.every(({ url }) =>
+        url.startsWith(
+          `https://api.github.com/repos/${releaseOwner}/shenzhen-3D/`,
+        ),
+      ),
+    );
+    const saved = JSON.parse(
+      await fs.readFile(path.join(f.directory, "updates.json")),
+    );
+    assert.equal(saved.repository, releaseOwner);
+    assert.equal(saved.automatic, false);
+  });
+  test(`${releaseOwner} preserves same-source preferences and encrypted access`, async (t) => {
+    const initialSettings = {
+      repository: releaseOwner,
+      automatic: false,
+      prereleases: false,
+      lastChecked: 1234,
+      encryptedToken: Buffer.from([...TEST_TOKEN].reverse().join("")).toString(
+        "base64",
+      ),
+    };
+    const f = await fixture(t, { releaseOwner, initialSettings });
+    await f.manager.configure({});
+    assert.equal(f.calls.decrypted, 1);
+    assert.equal(f.manager.getState().connected, true);
+    assert.equal(f.manager.getState().lastChecked, 1234);
+    assert.equal(f.manager.getState().prereleases, false);
+    assert.equal(f.manager.getState().automatic, false);
+    assert.deepEqual(
+      JSON.parse(await fs.readFile(path.join(f.directory, "updates.json"))),
+      initialSettings,
+    );
+  });
+  test(`${releaseOwner} drops other-source credentials without decrypting them`, async (t) => {
+    const initialSettings = {
+      repository:
+        releaseOwner === "mirror-org"
+          ? "casimir-engineering"
+          : "mirror-org",
+      automatic: false,
+      prereleases: false,
+      lastChecked: 1234,
+      encryptedToken: "other-source-ciphertext",
+    };
+    const f = await fixture(t, { releaseOwner, initialSettings });
+    await f.manager.configure({});
+    assert.equal(f.calls.decrypted, 0);
+    assert.equal(f.calls.auth.length, 0);
+    assert.equal(f.calls.creates, 0);
+    assert.equal(f.manager.getState().connected, false);
+    assert.equal(f.manager.getState().lastChecked, undefined);
+    assert.deepEqual(
+      JSON.parse(await fs.readFile(path.join(f.directory, "updates.json"))),
+      { repository: releaseOwner, automatic: false, prereleases: false },
+    );
+  });
+}
+test("wrong signed feed disables updating before credentials or networking", async (t) => {
+  for (const releaseOwner of ["casimir-engineering", "mirror-org"]) {
+    const f = await fixture(t, {
+      releaseOwner,
+      readPackagedFeed: async () => ({
+        provider: "github",
+        owner:
+          releaseOwner === "mirror-org"
+            ? "casimir-engineering"
+            : "mirror-org",
+        repo: "shenzhen-3D",
+        private: true,
+        channel: "latest",
+      }),
+      initialSettings: {
+        repository: releaseOwner,
+        encryptedToken: "must-not-decrypt",
+      },
+    });
+    await f.manager.check();
+    await f.manager.connect(TEST_TOKEN);
+    await f.manager.useGitHubCLI();
+    assert.equal(f.manager.getState().supported, false);
+    assert.match(f.manager.getState().message, /does not match this build/);
+    assert.equal(f.calls.decrypted, 0);
+    assert.equal(f.calls.auth.length, 0);
+    assert.equal(f.calls.creates, 0);
+  }
+});
+test("missing authoritative build owner cannot initialize an updater", async (t) => {
+  const f = await fixture(t, { releaseOwner: null });
+  await f.manager.connect(TEST_TOKEN);
+  await f.manager.check();
+  assert.equal(f.manager.getState().supported, false);
+  assert.match(f.manager.getState().message, /not configured/);
+  assert.equal(f.calls.auth.length, 0);
+  assert.equal(f.calls.creates, 0);
 });

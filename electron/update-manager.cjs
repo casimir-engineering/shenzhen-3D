@@ -2,9 +2,13 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { execFile: defaultExecFile } = require("node:child_process");
+const {
+  RELEASE_OWNERS,
+  validatePackagedFeed,
+} = require("./release-channel.cjs");
 
 const DAY = 24 * 60 * 60 * 1000;
-const OWNERS = new Set(["casimir-engineering", "mirror-org"]);
+const OWNERS = new Set(RELEASE_OWNERS);
 const CLI_PATHS = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"];
 
 /** Main-process only. Public state never contains credentials or updater errors. */
@@ -17,20 +21,31 @@ function createUpdateManager({
   onState = () => {},
   platform = process.platform,
   fetch = globalThis.fetch,
+  releaseOwner = "casimir-engineering",
+  readPackagedFeed = async () =>
+    require("js-yaml").load(
+      await fs.readFile(
+        path.join(process.resourcesPath, "app-update.yml"),
+        "utf8",
+      ),
+    ),
 }) {
-  const supported = platform === "darwin" && !!app.isPackaged;
+  const sourceConfigured = OWNERS.has(releaseOwner);
+  let supported = platform === "darwin" && !!app.isPackaged && sourceConfigured;
   const settingsFile = path.join(app.getPath("userData"), "updates.json");
   const state = {
     supported,
     version: app.getVersion(),
     status: "idle",
     automatic: true,
-    repository: "casimir-engineering",
+    repository: sourceConfigured ? releaseOwner : "casimir-engineering",
     prereleases: true,
     connected: false,
-    message: supported
-      ? "Connect GitHub to check private releases."
-      : "Updates are available in the installed Mac app.",
+    message: !sourceConfigured
+      ? "Update source is not configured in this build."
+      : supported
+        ? "Connect GitHub to check private releases."
+        : "Updates are available in the installed Mac app.",
   };
   let token,
     encryptedToken,
@@ -84,16 +99,35 @@ function createUpdateManager({
     }
   };
   const initialized = (async () => {
+    if (supported) {
+      try {
+        validatePackagedFeed(await readPackagedFeed(), releaseOwner);
+      } catch {
+        supported = false;
+        publish({
+          supported: false,
+          status: "error",
+          message:
+            "Update source does not match this build. Reinstall from the original repository.",
+        });
+        return;
+      }
+    }
     try {
       const data = JSON.parse(await fs.readFile(settingsFile, "utf8"));
       if (disposed) return;
       if (typeof data.automatic === "boolean") state.automatic = data.automatic;
-      if (OWNERS.has(data.repository)) state.repository = data.repository;
+      const sameChannel = data.repository === releaseOwner;
       if (typeof data.prereleases === "boolean")
         state.prereleases = data.prereleases;
-      if (Number.isFinite(data.lastChecked) && data.lastChecked >= 0)
+      if (
+        sameChannel &&
+        Number.isFinite(data.lastChecked) &&
+        data.lastChecked >= 0
+      )
         state.lastChecked = data.lastChecked;
-      if (supported && typeof data.encryptedToken === "string") {
+      if (!sameChannel) await persist();
+      if (sameChannel && supported && typeof data.encryptedToken === "string") {
         if (!secureStorage()) throw Error("secure storage unavailable");
         const decoded = safeStorage.decryptString(
           Buffer.from(data.encryptedToken, "base64"),
@@ -478,6 +512,11 @@ function createUpdateManager({
       if (changes.repository !== undefined && !OWNERS.has(changes.repository))
         throw Error("Choose one of the configured GitHub repositories.");
       if (
+        changes.repository !== undefined &&
+        changes.repository !== releaseOwner
+      )
+        throw Error("The update repository is fixed to this build.");
+      if (
         changes.automatic !== undefined &&
         typeof changes.automatic !== "boolean"
       )
@@ -489,15 +528,9 @@ function createUpdateManager({
         throw Error("Preview releases must be enabled or disabled.");
       operation = "configure";
       try {
-        const repositoryChanged =
-          changes.repository !== undefined &&
-          changes.repository !== state.repository;
-        if (repositoryChanged) {
-          token = encryptedToken = undefined;
-        }
         Object.assign(
           state,
-          ...["automatic", "repository", "prereleases"].map((key) =>
+          ...["automatic", "prereleases"].map((key) =>
             changes[key] === undefined ? {} : { [key]: changes[key] },
           ),
         );
@@ -506,9 +539,7 @@ function createUpdateManager({
           ...clearAvailable(),
           connected: !!token,
           status: supported && !token ? "needs-auth" : "idle",
-          message: repositoryChanged
-            ? "Connect GitHub for the selected private repository."
-            : state.message,
+          message: state.message,
         });
         if (scheduled) arm(20_000);
         return getState();

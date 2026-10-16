@@ -67,10 +67,23 @@ let updateTimer;
 function updates() {
   if (!updateManager) {
     const { createUpdateManager } = require("./update-manager.cjs");
+    const { resolveReleaseOwner } = require("./release-channel.cjs");
+    let releaseOwner;
+    try {
+      releaseOwner = resolveReleaseOwner(
+        app.isPackaged
+          ? require(path.join(app.getAppPath(), "package.json"))
+          : {},
+        app.isPackaged,
+      );
+    } catch {
+      releaseOwner = null;
+    }
     updateManager = createUpdateManager({
       app,
       safeStorage,
       dialog,
+      releaseOwner,
       onState: (state) => {
         for (const window of BrowserWindow.getAllWindows()) {
           if (!window.isDestroyed() && trusted(window.webContents.getURL()))

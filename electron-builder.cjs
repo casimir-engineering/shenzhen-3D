@@ -14,6 +14,11 @@ module.exports = {
         "utf8",
       ),
     );
+    const { validatePackagedFeed } = require("./electron/release-channel.cjs");
+    validatePackagedFeed(
+      context.packager.config.publish,
+      provenance.releaseOwner,
+    );
     verifyRuntimeArchive(
       path.join(
         context.appOutDir,

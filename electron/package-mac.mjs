@@ -6,6 +6,10 @@ import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
+const {
+  assertReleaseOwner,
+  validatePackagedFeed,
+} = require("./release-channel.cjs");
 const hash = (bytes, algorithm = "sha256", encoding = "hex") =>
   createHash(algorithm).update(bytes).digest(encoding);
 const run = (command, args) =>
@@ -39,7 +43,12 @@ async function fingerprint(directory, relative = "", result = {}) {
   return result;
 }
 /** Stage a self-contained, lock-verified production dependency graph. */
-export async function stageRuntime(staging, pkg) {
+export async function stageRuntime(
+  staging,
+  pkg,
+  { releaseOwner = "casimir-engineering" } = {},
+) {
+  assertReleaseOwner(releaseOwner);
   const lockBytes = await fs.readFile(path.join(root, "package-lock.json"));
   const lock = JSON.parse(lockBytes);
   const updaterVersion = pkg.dependencies?.["electron-updater"];
@@ -132,6 +141,7 @@ export async function stageRuntime(staging, pkg) {
     author: "INTUITION Robotique & Technologies",
     private: true,
     main: "electron/main.cjs",
+    releaseOwner,
     dependencies,
   };
   await fs.writeFile(
@@ -178,6 +188,7 @@ export async function stageRuntime(staging, pkg) {
     });
   }
   return {
+    releaseOwner,
     packageLockSha256: hash(lockBytes),
     runtimeFiles: production,
     runtimeDependencies: [...inventory.values()].sort((a, b) =>
@@ -189,6 +200,14 @@ export function verifyRuntimeArchive(archive, provenance) {
   const asar = require("@electron/asar"),
     semver = require("semver");
   const archiveFiles = asar.listPackage(archive);
+  if (provenance.releaseOwner !== undefined) {
+    const metadata = JSON.parse(asar.extractFile(archive, "package.json"));
+    if (
+      assertReleaseOwner(metadata.releaseOwner) !==
+      assertReleaseOwner(provenance.releaseOwner)
+    )
+      throw Error("Packaged release owner does not match provenance");
+  }
   for (const file of Object.keys(provenance.runtimeFiles))
     if (
       !archiveFiles.includes("/" + file) ||
@@ -257,14 +276,7 @@ async function verifyPackage(output, pkg, provenance) {
   const feed = yaml.load(
     await fs.readFile(path.join(resources, "app-update.yml"), "utf8"),
   );
-  if (
-    feed.provider !== "github" ||
-    feed.owner !== "casimir-engineering" ||
-    feed.repo !== "shenzhen-3D" ||
-    feed.private !== true ||
-    "token" in feed
-  )
-    throw Error("Unexpected or credential-bearing packaged updater feed.");
+  validatePackagedFeed(feed, assertReleaseOwner(provenance.releaseOwner));
   const update = yaml.load(
     await fs.readFile(path.join(output, "latest-mac.yml"), "utf8"),
   );
@@ -305,6 +317,10 @@ async function verifyPackage(output, pkg, provenance) {
   };
 }
 async function main() {
+  const releaseOwner = assertReleaseOwner(
+    process.argv.find((arg) => arg.startsWith("--release-owner="))?.slice(16) ??
+      "casimir-engineering",
+  );
   // Packaging always consumes a fresh production build, including stage-only verification.
   await run("npm", ["run", "build"]);
   const pkg = JSON.parse(
@@ -314,14 +330,14 @@ async function main() {
   const output = path.join(
       root,
       "artifacts/electron",
-      `${pkg.version}-${stamp}`,
+      `${pkg.version}-${releaseOwner}-${stamp}`,
     ),
     staging = path.join(output, "staging");
   await fs.mkdir(staging, { recursive: true });
   await fs.cp(path.join(root, "dist"), path.join(staging, "dist"), {
     recursive: true,
   });
-  const runtime = await stageRuntime(staging, pkg);
+  const runtime = await stageRuntime(staging, pkg, { releaseOwner });
   const provenance = {
     version: pkg.version,
     sourceCommit: execFileSync("git", ["rev-parse", "HEAD"], {
@@ -355,6 +371,8 @@ async function main() {
     staging,
     "--config",
     path.join(root, "electron-builder.cjs"),
+    "--config.publish.owner",
+    releaseOwner,
     "--config.directories.output",
     output,
     "--config.electronVersion",

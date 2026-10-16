@@ -28,6 +28,10 @@ const config = require(path.join(root, "electron-builder.cjs"));
 const base = JSON.parse(
   await fs.readFile(path.join(original, "build-info.json"), "utf8"),
 );
+const { resolveArtifactReleaseOwner, validatePackagedFeed } = require(
+  path.join(root, "electron/release-channel.cjs"),
+);
+const releaseOwner = resolveArtifactReleaseOwner(pkg, base);
 if (base.version !== pkg.version || base.sourceDirty)
   throw Error("Expected frozen clean production provenance");
 const filename = (ext) => `Shenzhen-3D-${pkg.version}-Apple-Silicon.${ext}`;
@@ -37,6 +41,27 @@ const originalApp = path.join(
   config.productName + ".app",
 );
 const app = path.join(output, "mac-arm64", config.productName + ".app");
+function verifyChannel(appPath) {
+  const resources = path.join(appPath, "Contents/Resources");
+  const feed = require("js-yaml").load(
+    require("node:fs").readFileSync(
+      path.join(resources, "app-update.yml"),
+      "utf8",
+    ),
+  );
+  validatePackagedFeed(feed, releaseOwner);
+  if (pkg.releaseOwner !== undefined) {
+    const metadata = JSON.parse(
+      require("@electron/asar").extractFile(
+        path.join(resources, "app.asar"),
+        "package.json",
+      ),
+    );
+    if (metadata.releaseOwner !== releaseOwner)
+      throw Error("App release owner does not match provenance");
+  }
+}
+verifyChannel(originalApp);
 const sha = async (file, algorithm = "sha256", encoding = "hex") =>
   createHash(algorithm)
     .update(await fs.readFile(file))
@@ -140,6 +165,7 @@ const accepted = async (kind, id) => {
   };
 };
 const verifyApp = async (p, label) => {
+  verifyChannel(p);
   await run(
     "codesign",
     ["--verify", "--deep", "--strict", p],
@@ -185,6 +211,8 @@ if (arg("phase") === "package") {
       path.join(original, "staging"),
       "--config",
       path.join(root, "electron-builder.cjs"),
+      "--config.publish.owner",
+      releaseOwner,
       "--config.directories.output",
       output,
       "--config.electronVersion",
@@ -208,6 +236,7 @@ if (arg("phase") === "package") {
         app,
         zip: notarization,
         sourceCommit: base.sourceCommit,
+        releaseOwner,
         asarSha256: await sha(path.join(app, "Contents/Resources/app.asar")),
         packagedAt: new Date().toISOString(),
       },
@@ -346,6 +375,7 @@ if (arg("phase") === "package") {
   }
   const final = {
     ...base,
+    releaseOwner,
     artifacts,
     sidecars,
     updateMetadata: { file: "latest-mac.yml", sha256: await sha(metadataFile) },
