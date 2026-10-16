@@ -55,6 +55,7 @@ try {
   });
   expect(blocked).toEqual([true, true, true, true, true]);
   await application.evaluate(({ ipcMain, BrowserWindow }) => {
+    const configurations = [];
     let state = {
       supported: true,
       version: "0.1.4",
@@ -70,9 +71,23 @@ try {
         win.webContents.send("shenzhen-update-state", state);
       return state;
     };
+    globalThis.__updatesUiFixture = {
+      configurations,
+      setRepository(owner) {
+        if (!["casimir-engineering", "mirror-org"].includes(owner))
+          throw Error("Invalid fixture origin");
+        state.repository = owner;
+        return send();
+      },
+    };
     ipcMain.removeHandler("shenzhen-updates");
     ipcMain.handle("shenzhen-updates", async (_event, method, value) => {
-      if (method === "configure") Object.assign(state, value);
+      if (method === "configure") {
+        configurations.push(value);
+        if (Object.hasOwn(value, "repository"))
+          throw Error("Release source is fixed by the build");
+        Object.assign(state, value);
+      }
       if (method === "connect") {
         if (value !== "fixture-token") throw Error("invalid fixture");
         state.connected = true;
@@ -115,23 +130,56 @@ try {
   await expect(
     page.getByRole("dialog", { name: "Updates", exact: true }),
   ).toBeVisible();
-  await expect(
-    page.getByLabel("Access token"),
-  ).toBeVisible();
-  await page
-    .getByLabel("Access token")
-    .fill("fixture-token");
+  const source = page.getByLabel("Release repository", { exact: true });
+  for (const owner of ["casimir-engineering", "mirror-org"]) {
+    // Mount a fresh panel for each simulated build origin; there is no UI switch.
+    if (owner === "mirror-org") {
+      await page.keyboard.press("Escape");
+      await expect(
+        page.getByRole("dialog", { name: "Updates", exact: true }),
+      ).not.toBeVisible();
+      await application.evaluate(
+        (_electron, owner) =>
+          globalThis.__updatesUiFixture.setRepository(owner),
+        owner,
+      );
+      await application.evaluate(({ Menu }) =>
+        Menu.getApplicationMenu()
+          .items[0].submenu.items.find(
+            (item) => item.label === "Check for Updates…",
+          )
+          .click(),
+      );
+      await expect(
+        page.getByRole("dialog", { name: "Updates", exact: true }),
+      ).toBeVisible();
+    }
+    await expect(source).toHaveValue(`${owner} / shenzhen-3D`);
+    await expect(source).toHaveJSProperty("readOnly", true);
+    await source.focus();
+    await page.keyboard.press("Meta+A");
+    await page.keyboard.type("different-release-source");
+    await expect(source).toHaveValue(`${owner} / shenzhen-3D`);
+  }
+  expect(
+    await application.evaluate(
+      () => globalThis.__updatesUiFixture.configurations,
+    ),
+  ).toEqual([]);
+  await expect(page.getByLabel("Access token")).toBeVisible();
+  await page.getByLabel("Access token").fill("fixture-token");
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator(".updates-connection > summary").click();
   await expect(
     page.getByRole("button", { name: "Disconnect", exact: true }),
   ).toBeVisible();
-  await page.getByLabel("Release repository").selectOption("mirror-org");
-  await expect(page.getByLabel("Release repository")).toHaveValue(
-    "mirror-org",
-  );
   await page.getByLabel("Check daily").click();
   await expect(page.getByLabel("Check daily")).not.toBeChecked();
+  expect(
+    await application.evaluate(
+      () => globalThis.__updatesUiFixture.configurations,
+    ),
+  ).toEqual([{ automatic: false }]);
   await page
     .getByRole("button", { name: "Check for updates", exact: true })
     .click();
@@ -147,12 +195,13 @@ try {
   await expect(
     page.getByRole("button", { name: "Restart & install" }),
   ).toBeVisible();
-  await expect(page.getByLabel("Release repository")).toBeDisabled();
+  await expect(source).toHaveJSProperty("readOnly", true);
+  await expect(source).toHaveValue("mirror-org / shenzhen-3D");
   await page.getByRole("button", { name: "Restart & install" }).click();
   await expect(page.getByText("Install confirmation canceled.")).toBeVisible();
-  await fs.mkdir("artifacts/releases-0.1.4", { recursive: true });
+  await fs.mkdir("artifacts/perf", { recursive: true });
   await page.screenshot({
-    path: "artifacts/releases-0.1.4/updates-preview.png",
+    path: "artifacts/perf/updates-source-ui.png",
   });
   await page.keyboard.press("Escape");
   await expect(
@@ -160,7 +209,7 @@ try {
   ).not.toBeVisible();
   expect(await page.locator("canvas").count()).toBe(0);
   console.log(
-    "PASS: lazy update UI, private access form, preferences, repository selection, availability, download progress, install state, Escape, renderer-free startup",
+    "PASS: lazy update UI, private access form, preferences, read-only Casimir sources, no repository configuration calls, availability, download progress, install state, Escape, renderer-free startup",
   );
 } finally {
   await application.close();
