@@ -36,7 +36,7 @@ This delivery refreshes the Apple Silicon Electron package. Mobile-sized browser
 
 Both published private feeds offered 0.1.4 to an isolated, signed test fixture reporting version 0.1.3. The app downloaded the Casimir ZIP, verified its SHA-512, and invoked native Squirrel installation. Only the fixture bundle was replaced. Its resulting ASAR matched the frozen release exactly, and the updated bundle passed signature, stapled-ticket and Gatekeeper checks before launching as 0.1.4. Temporary credentials and owned native update cache/ShipIt state were removed.
 
-The fixture contains the final updater implementation with a synthetic older version; the original public 0.1.3 build did not include this updater. The install confirmation response was automated. Automatic relaunch was disabled for this test to preserve profile isolation, followed by a manual launch of the replaced bundle with the same temporary profile. Those limitations are recorded in `updater-install-report.json`.
+The fixture contains the final updater implementation with a synthetic older version; the original published 0.1.3 build did not include this updater. The install confirmation response was automated. Automatic relaunch was disabled for this test to preserve profile isolation, followed by a manual launch of the replaced bundle with the same temporary profile. Those limitations are recorded in `updater-install-report.json`.
 
 ## Artifacts
 
