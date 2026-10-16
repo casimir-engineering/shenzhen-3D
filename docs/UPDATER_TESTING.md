@@ -51,6 +51,14 @@ Finalization staples the DMG, verifies signatures, tickets, Gatekeeper and disk-
 
 Apple's notarization log identifies the submitted archive **before** stapling/repacking. Distribution hashes identify the final ZIP and stapled DMG. Those digests are intentionally recorded separately. Apple documents stapling the app and recreating its ZIP because ZIP archives cannot themselves receive a stapled ticket. See [Apple's notarization workflow](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow).
 
+## Release throughput
+
+Freeze the tested runtime once. Reuse its signed app for notarization and installer assembly; documentation or upload-tool changes do not require rebuilding that runtime. Record the runtime commit separately from later release-tool commits.
+
+On a constrained uplink, serialize large Apple and GitHub uploads. Concurrent 140 MB transfers exhausted the 900-second Apple request deadline during 0.1.6 delivery. Small metadata uploads and local verification can proceed while one large transfer runs. The GitHub uploader allows 900 seconds per transfer and checks remote state before a retry, avoiding duplicate completed uploads.
+
+Keep accepted submissions and verified archives as checkpoints. Resume from the next unfinished phase after a disconnect. Never regenerate a frozen updater ZIP after its hash has entered the release feed. Prepare release notes, source-isolation reports and installer screenshots while uploads run, then publish after final artifact verification.
+
 ## Isolated native update installation
 
 For an upgrade from a released app that already includes the updater, copy that signed app into a new fixture directory. Keep the original untouched:
