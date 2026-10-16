@@ -1,5 +1,13 @@
 import * as T from "three";
 import { Viewer } from "/src/core/viewer.ts";
+const rotationListeners = new Set();
+window.shenzhenScroll = {
+  source: () => null,
+  subscribeRotate(listener) {
+    rotationListeners.add(listener);
+    return () => rotationListeners.delete(listener);
+  },
+};
 const viewer = new Viewer(document.querySelector("#viewer"));
 const geometry = new T.BoxGeometry(10, 10, 10);
 const documentFor = (is2D) => ({
@@ -54,6 +62,7 @@ viewer.onPick = () => picks++;
 const snapshot = () => ({
   position: viewer.camera.position.toArray(),
   quaternion: viewer.camera.quaternion.toArray(),
+  up: viewer.camera.up.toArray(),
   target: viewer.controls.target.toArray(),
   zoom: viewer.camera.zoom,
   distance: viewer.camera.position.distanceTo(viewer.controls.target),
@@ -90,6 +99,7 @@ const reset = (is2D = false, orthographic = false, options = {}) => {
 const restore = (state) => {
   viewer.camera.position.fromArray(state.position);
   viewer.camera.quaternion.fromArray(state.quaternion);
+  if (state.up) viewer.camera.up.fromArray(state.up);
   viewer.camera.zoom = state.zoom;
   viewer.camera.updateProjectionMatrix();
   viewer.controls.target.fromArray(state.target);
@@ -104,4 +114,9 @@ window.measurementNavigation = {
   configure,
   replaceModel,
   wheelSample: () => wheelSample,
+  rotationSubscribers: () => rotationListeners.size,
+  emitRotation: (payload) => {
+    for (const listener of rotationListeners) listener(payload);
+    return snapshot();
+  },
 };
