@@ -3,6 +3,15 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { MeshBVH, acceleratedRaycast } from "three-mesh-bvh";
 import { analyzeMeshFeature } from "./mesh-features";
 import { createId } from "./id";
+import {
+  WheelGestureClassifier,
+  type NavigationMode,
+} from "./navigation-gestures";
+import {
+  measurementComponents,
+  MEASUREMENT_AXIS_COLORS,
+  layoutMeasurementLabels,
+} from "./measurement-overlay";
 import { createInstancedEdges } from "./gpu-edges";
 import { ScenePickingIndex } from "./scene-picking";
 import { createRenderBatches, type RenderBatches } from "./render-batches";
@@ -36,7 +45,7 @@ export interface ViewOptions {
   sectionPosition: number;
   hidden: Set<string>;
   theme: "dark" | "light";
-  navigation: "mouse" | "trackpad";
+  navigation: NavigationMode;
   navigationDetail?: "auto" | "full";
   renderStyle?: "shaded" | "shaded-edges" | "wireframe" | "hidden-line";
   lightAzimuth?: number;
@@ -52,6 +61,9 @@ export interface OverlayData {
   points: Vec3[];
   text?: string;
   path?: Vec3[];
+  /** Formatted X/Y/Z labels; explicitly enables components for a two-endpoint path. */
+  axisTexts?: readonly [string, string, string];
+  showAxes?: boolean;
 }
 const AXES = {
   x: new T.Vector3(1, 0, 0),
@@ -106,7 +118,7 @@ export class Viewer {
   private transformsDirty = false;
   private hoverFrame = 0;
   private hoverEvent?: PointerEvent;
-  private pointerStart?: { x: number; y: number; time: number };
+  private pointerStart?: { x: number; y: number; time: number; moved: boolean };
   private pendingPick?: Pick;
   private activePointers = new Set<number>();
   private gesture = false;
@@ -114,6 +126,22 @@ export class Viewer {
   private frame = 0;
   private disposed = false;
   private label: HTMLDivElement;
+  private axisLabels: HTMLDivElement[] = [];
+  private axisMidpoints: (T.Vector3 | undefined)[] = [];
+  private axisLines: T.Line[] = [];
+  private labelMidpoint = new T.Vector3();
+  private labelProjection = new T.Vector3();
+  private labelLayout = Array.from({ length: 4 }, () => ({
+    anchorX: 0,
+    anchorY: 0,
+    width: 0,
+    height: 0,
+    x: 0,
+    y: 0,
+    visible: false,
+  }));
+  private labelMeasureDirty = true;
+  private wheelGestures = new WheelGestureClassifier();
   private overlayData: OverlayData = { points: [] };
   private markers: T.Mesh[] = [];
   private mode: SelectionMode = "point";
@@ -129,7 +157,7 @@ export class Viewer {
     sectionPosition: 0.5,
     hidden: new Set(),
     theme: "dark",
-    navigation: "mouse",
+    navigation: "auto",
   };
   onPick?: (pick: Pick) => void;
   onHover?: (text: string) => void;
@@ -181,6 +209,20 @@ export class Viewer {
     this.label.style.zIndex = "3";
     this.label.hidden = true;
     host.appendChild(this.label);
+    for (const axis of ["x", "y", "z"]) {
+      const label = document.createElement("div");
+      label.className = `dimension-label dimension-axis-label axis-${axis}`;
+      label.dataset.axis = axis;
+      Object.assign(label.style, {
+        zIndex: "3",
+        color: `var(--axis-${axis})`,
+        borderColor: "currentColor",
+        background: "var(--bench, #182126)",
+      });
+      label.hidden = true;
+      host.appendChild(label);
+      this.axisLabels.push(label);
+    }
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
     const canvas = this.renderer.domElement;
@@ -215,6 +257,8 @@ export class Viewer {
     c.screenSpacePanning = true;
     c.rotateSpeed = 0.75;
     c.zoomSpeed = 1.1;
+    c.mouseButtons.LEFT = this.model?.is2D ? T.MOUSE.PAN : T.MOUSE.ROTATE;
+    c.mouseButtons.MIDDLE = c.mouseButtons.LEFT;
     c.touches.ONE = T.TOUCH.ROTATE;
     c.touches.TWO = T.TOUCH.DOLLY_PAN;
     c.addEventListener("change", this.cameraChanged);
@@ -232,6 +276,7 @@ export class Viewer {
     this.invalidate();
   };
   private resize() {
+    this.labelMeasureDirty = true;
     const width = Math.max(this.host.clientWidth, 1),
       height = Math.max(this.host.clientHeight, 1);
     this.renderer.setSize(width, height);
@@ -261,18 +306,27 @@ export class Viewer {
     this.syncRayTraceActivity();
     const worldPixel = this.worldPerPixel();
     for (const m of this.markers) m.scale.setScalar(worldPixel * 5);
+    for (const line of this.axisLines) {
+      const material = line.material as T.LineDashedMaterial;
+      material.dashSize = worldPixel * 7;
+      material.gapSize = worldPixel * 4;
+    }
     if (this.overlayData.points.length) {
-      const p =
-        this.overlayData.points.length > 1
-          ? new T.Vector3()
-              .fromArray(this.overlayData.points[0])
-              .add(new T.Vector3().fromArray(this.overlayData.points.at(-1)!))
-              .multiplyScalar(0.5)
-          : new T.Vector3().fromArray(this.overlayData.points[0]);
-      p.project(this.camera);
-      this.label.style.left = (p.x * 0.5 + 0.5) * this.host.clientWidth + "px";
-      this.label.style.top = (-p.y * 0.5 + 0.5) * this.host.clientHeight + "px";
-      this.label.hidden = !this.overlayData.text || p.z > 1 || p.z < -1;
+      this.positionLabel(this.label, this.labelMidpoint, 0);
+      for (let axis = 0; axis < 3; axis++) {
+        const midpoint = this.axisMidpoints[axis];
+        if (midpoint)
+          this.positionLabel(this.axisLabels[axis], midpoint, axis + 1);
+      }
+      this.labelMeasureDirty = false;
+      layoutMeasurementLabels(
+        this.labelLayout,
+        this.host.clientWidth,
+        this.host.clientHeight,
+      );
+      this.applyLabelPosition(this.label, 0);
+      for (let axis = 0; axis < 3; axis++)
+        this.applyLabelPosition(this.axisLabels[axis], axis + 1);
     }
     this.renderScene(!!this.rayTracer?.imageVisible && !this.rayTraceMoving);
     this.onStats?.({
@@ -280,6 +334,35 @@ export class Viewer {
       triangles: this.renderer.info.render.triangles,
     });
     this.onViewChanged?.();
+  }
+  private positionLabel(
+    label: HTMLDivElement,
+    midpoint: T.Vector3,
+    index: number,
+  ) {
+    const p = this.labelProjection.copy(midpoint).project(this.camera);
+    label.hidden =
+      !label.textContent ||
+      !Number.isFinite(p.x + p.y + p.z) ||
+      Math.abs(p.z) > 1 ||
+      Math.abs(p.x) > 1 ||
+      Math.abs(p.y) > 1;
+    const layout = this.labelLayout[index];
+    layout.visible = !label.hidden;
+    if (!label.hidden) {
+      layout.anchorX = (p.x * 0.5 + 0.5) * this.host.clientWidth;
+      layout.anchorY = (-p.y * 0.5 + 0.5) * this.host.clientHeight;
+      if (this.labelMeasureDirty || !layout.width) {
+        layout.width = label.offsetWidth;
+        layout.height = label.offsetHeight;
+      }
+    }
+  }
+  private applyLabelPosition(label: HTMLDivElement, index: number) {
+    const layout = this.labelLayout[index];
+    if (!layout.visible) return;
+    label.style.left = layout.x + layout.width / 2 + "px";
+    label.style.top = layout.y + layout.height * 1.5 + "px";
   }
   private renderScene(overlaysOnly: boolean) {
     if (!overlaysOnly) {
@@ -642,6 +725,7 @@ export class Viewer {
       this.bounds.min.z - this.radius * 0.002,
     );
     this.controls.mouseButtons.LEFT = doc.is2D ? T.MOUSE.PAN : T.MOUSE.ROTATE;
+    this.controls.mouseButtons.MIDDLE = this.controls.mouseButtons.LEFT;
     this.controls.touches.ONE = doc.is2D ? T.TOUCH.PAN : T.TOUCH.ROTATE;
     this.transformsDirty = true;
     this.applyOptions(this.options);
@@ -826,6 +910,7 @@ export class Viewer {
     this.controls.target.copy(target);
     if (this.model?.is2D) {
       this.controls.mouseButtons.LEFT = T.MOUSE.PAN;
+      this.controls.mouseButtons.MIDDLE = T.MOUSE.PAN;
       this.controls.touches.ONE = T.TOUCH.PAN;
     }
     this.controls.update();
@@ -864,6 +949,10 @@ export class Viewer {
     this.scene.background = new T.Color(
       options.theme === "dark" ? 0x182126 : 0xe9eeef,
     );
+    for (const line of this.axisLines)
+      (line.material as T.LineDashedMaterial).color.setHex(
+        MEASUREMENT_AXIS_COLORS[options.theme][line.userData.axis],
+      );
     this.grid.visible = options.grid;
     this.lightDirection.copy(
       updateViewerLighting(
@@ -1129,11 +1218,27 @@ export class Viewer {
     }
   }
   setOverlay(data: OverlayData) {
+    const worldPixel = this.worldPerPixel();
     this.clearGroup(this.overlay);
     this.overlayData = data;
+    this.labelMeasureDirty = true;
+    for (const layout of this.labelLayout) layout.visible = false;
     this.markers = [];
+    this.axisLines = [];
+    this.axisMidpoints = [];
+    for (const label of this.axisLabels) {
+      label.hidden = true;
+      label.textContent = "";
+    }
     this.label.textContent = data.text || "";
     this.label.hidden = !data.text;
+    if (data.points.length) {
+      this.labelMidpoint.fromArray(data.points[0]);
+      if (data.points.length > 1)
+        this.labelMidpoint
+          .add(this.labelProjection.fromArray(data.points.at(-1)!))
+          .multiplyScalar(0.5);
+    }
     data.points.forEach((p, i) => {
       const m = new T.Mesh(
         new T.SphereGeometry(1, 12, 8),
@@ -1161,30 +1266,40 @@ export class Viewer {
         }),
       );
       line.renderOrder = 19;
+      line.name = "measurement-connector";
       this.overlay.add(line);
-      if (!data.path && data.points.length === 2) {
+      if (
+        data.points.length === 2 &&
+        data.showAxes !== false &&
+        (!data.path ||
+          (data.path.length === 2 && (data.axisTexts || data.showAxes)))
+      ) {
         const [a, b] = data.points;
-        const segments = [
-          new T.Vector3(...a),
-          new T.Vector3(b[0], a[1], a[2]),
-          new T.Vector3(b[0], b[1], a[2]),
-          new T.Vector3(...b),
-        ];
-        const geo = new T.BufferGeometry().setFromPoints(segments);
-        const dashed = new T.Line(
-          geo,
-          new T.LineDashedMaterial({
-            color: 0xa0b3b9,
-            dashSize: this.radius * 0.012,
-            gapSize: this.radius * 0.007,
-            depthTest: false,
-            transparent: true,
-            opacity: 0.7,
-          }),
-        );
-        dashed.computeLineDistances();
-        dashed.renderOrder = 18;
-        this.overlay.add(dashed);
+        for (const component of measurementComponents(a, b)) {
+          const axis = component.axis;
+          const dashed = new T.Line(
+            new T.BufferGeometry().setFromPoints([
+              new T.Vector3(...component.start),
+              new T.Vector3(...component.end),
+            ]),
+            new T.LineDashedMaterial({
+              color: MEASUREMENT_AXIS_COLORS[this.options.theme][axis],
+              dashSize: worldPixel * 7,
+              gapSize: worldPixel * 4,
+              depthTest: false,
+              depthWrite: false,
+            }),
+          );
+          dashed.name = `measurement-axis-${"xyz"[axis]}`;
+          dashed.userData.axis = axis;
+          dashed.computeLineDistances();
+          dashed.renderOrder = 18;
+          this.overlay.add(dashed);
+          this.axisLines.push(dashed);
+          this.axisMidpoints[axis] = new T.Vector3(...component.midpoint);
+          this.axisLabels[axis].textContent =
+            data.axisTexts?.[axis] ?? `Δ${"XYZ"[axis]}`;
+        }
       }
     }
     this.syncRayTraceActivity();
@@ -1383,6 +1498,7 @@ export class Viewer {
       x: event.clientX,
       y: event.clientY,
       time: performance.now(),
+      moved: false,
     };
   };
   private up = (event: PointerEvent) => {
@@ -1391,9 +1507,10 @@ export class Viewer {
     this.syncRayTraceActivity();
     const wasGesture = this.gesture;
     if (!this.activePointers.size) this.gesture = false;
-    if (!start || event.button !== 0 || wasGesture) return;
     this.pointerStart = undefined;
+    if (!start || event.button !== 0 || wasGesture) return;
     if (
+      start.moved ||
       Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5 ||
       performance.now() - start.time > 700
     )
@@ -1415,6 +1532,14 @@ export class Viewer {
     if (!this.activePointers.size) this.gesture = false;
   };
   private move = (event: PointerEvent) => {
+    if (
+      this.pointerStart &&
+      Math.hypot(
+        event.clientX - this.pointerStart.x,
+        event.clientY - this.pointerStart.y,
+      ) > 5
+    )
+      this.pointerStart.moved = true;
     if (event.buttons || event.pointerType === "touch") return;
     this.hoverEvent = event;
     if (this.hoverFrame) return;
@@ -1462,22 +1587,23 @@ export class Viewer {
   };
   private contextMenu = (event: Event) => event.preventDefault();
   private wheel = (event: WheelEvent) => {
-    if (this.options.navigation !== "trackpad" || event.ctrlKey) return;
+    if (
+      this.wheelGestures.classify(
+        event,
+        this.options.navigation,
+        performance.now(),
+      ) !== "pan"
+    )
+      return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    const scale = this.worldPerPixel();
-    const right = new T.Vector3().setFromMatrixColumn(
-        this.camera.matrixWorld,
-        0,
-      ),
-      up = new T.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
-    const offset = right
-      .multiplyScalar(event.deltaX * scale)
-      .add(up.multiplyScalar(-event.deltaY * scale));
-    this.camera.position.add(offset);
-    this.controls.target.add(offset);
-    this.controls.update();
-    this.invalidate();
+    const scale =
+      event.deltaMode === 1
+        ? 16
+        : event.deltaMode === 2
+          ? this.host.clientHeight
+          : 1;
+    this.controls.pan(-event.deltaX * scale, -event.deltaY * scale);
   };
   async screenshot() {
     let traced: ImageBitmap | undefined;
@@ -1518,18 +1644,21 @@ export class Viewer {
     }
     ctx.drawImage(this.renderer.domElement, 0, 0);
     this.invalidate();
-    if (!this.label.hidden) {
-      const ratio = this.renderer.getPixelRatio();
-      const x = parseFloat(this.label.style.left) * ratio,
-        y = parseFloat(this.label.style.top) * ratio;
-      ctx.font = `${14 * ratio}px monospace`;
-      const width = ctx.measureText(this.label.textContent!).width + 20 * ratio;
-      ctx.fillStyle = "#142b24";
-      ctx.fillRect(x - width / 2, y - 34 * ratio, width, 28 * ratio);
-      ctx.fillStyle = "#b9f7dd";
-      ctx.textAlign = "center";
-      ctx.fillText(this.label.textContent!, x, y - 15 * ratio);
-    }
+    for (const label of [this.label, ...this.axisLabels])
+      if (!label.hidden) {
+        const ratio = this.renderer.getPixelRatio();
+        const x = parseFloat(label.style.left) * ratio,
+          y = parseFloat(label.style.top) * ratio;
+        ctx.font = `${14 * ratio}px monospace`;
+        const width = ctx.measureText(label.textContent!).width + 20 * ratio;
+        const style =
+          label === this.label ? undefined : getComputedStyle(label);
+        ctx.fillStyle = style?.backgroundColor ?? "#142b24";
+        ctx.fillRect(x - width / 2, y - 34 * ratio, width, 28 * ratio);
+        ctx.fillStyle = style?.color ?? "#b9f7dd";
+        ctx.textAlign = "center";
+        ctx.fillText(label.textContent!, x, y - 15 * ratio);
+      }
     return new Promise<Blob>((resolve) =>
       canvas.toBlob((b) => resolve(b!), "image/png"),
     );
@@ -1548,5 +1677,6 @@ export class Viewer {
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.label.remove();
+    for (const label of this.axisLabels) label.remove();
   }
 }

@@ -1,0 +1,19 @@
+import * as T from 'three';
+import { Viewer } from '/src/core/viewer.ts';
+const viewer = new Viewer(document.querySelector('#viewer'));
+const geometry = new T.BoxGeometry(10,10,10);
+const documentFor = is2D => ({name:'Navigation fixture',format:'test',geometries:new Map([['box',{id:'box',geometry,materials:[new T.MeshStandardMaterial({color:0xaaaaaa})]}]]),parts:[{id:'box',name:'Box',geometryId:'box',matrix:new T.Matrix4().toArray(),parentId:'root',path:['Box']}],roots:[],unit:'mm',sourceUnit:'mm',warnings:[],importMs:0,bytes:0,is2D});
+let picks = 0;
+viewer.onPick = () => picks++;
+const snapshot = () => ({position:viewer.camera.position.toArray(),quaternion:viewer.camera.quaternion.toArray(),target:viewer.controls.target.toArray(),zoom:viewer.camera.zoom,distance:viewer.camera.position.distanceTo(viewer.controls.target),picks});
+const reset = (is2D=false,orthographic=false) => {
+  viewer.setModel(documentFor(is2D));
+  viewer.setProjection(orthographic);
+  viewer.preset('iso');
+  viewer.applyOptions({...viewer.options,navigation:'auto',grid:false});
+  picks = 0;
+  return snapshot();
+};
+const restore = state => {viewer.camera.position.fromArray(state.position);viewer.camera.quaternion.fromArray(state.quaternion);viewer.camera.zoom=state.zoom;viewer.camera.updateProjectionMatrix();viewer.controls.target.fromArray(state.target);viewer.controls.update();};
+reset();
+window.measurementNavigation={viewer,snapshot,reset,restore};
