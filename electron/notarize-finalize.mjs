@@ -3,6 +3,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
+import { verifyRuntimeArchive } from "./package-mac.mjs";
 const root = process.cwd(),
   require = createRequire(path.join(root, "package.json"));
 const arg = (name) =>
@@ -32,6 +33,14 @@ const { resolveArtifactReleaseOwner, validatePackagedFeed } = require(
   path.join(root, "electron/release-channel.cjs"),
 );
 const releaseOwner = resolveArtifactReleaseOwner(pkg, base);
+const isolationPolicy = JSON.parse(
+  await fs
+    .readFile(path.join(original, "staging/.release-verification.json"), "utf8")
+    .catch((error) => {
+      if (error.code === "ENOENT") return "{}";
+      throw error;
+    }),
+);
 if (base.version !== pkg.version || base.sourceDirty)
   throw Error("Expected frozen clean production provenance");
 const filename = (ext) => `Shenzhen-3D-${pkg.version}-Apple-Silicon.${ext}`;
@@ -43,6 +52,9 @@ const originalApp = path.join(
 const app = path.join(output, "mac-arm64", config.productName + ".app");
 function verifyChannel(appPath) {
   const resources = path.join(appPath, "Contents/Resources");
+  // Native addons live beside ASAR and may be re-signed during packaging.
+  // Validate their signature-stripped code against the frozen provenance too.
+  verifyRuntimeArchive(path.join(resources, "app.asar"), base, isolationPolicy);
   const feed = require("js-yaml").load(
     require("node:fs").readFileSync(
       path.join(resources, "app-update.yml"),
