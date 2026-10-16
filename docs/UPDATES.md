@@ -1,10 +1,10 @@
 # Private Mac update packaging
 
-The Chromium Mac app uses `electron-updater` 6.8.9. Each signed package has a fixed `releaseOwner`: **casimir-engineering** or **mirror-org**. Its private GitHub feed points to that owner’s `shenzhen-3D` repository and channel `latest`. Casimir and Mirror releases require separate package variants; their binary assets must not be interchanged.
+The Chromium Mac app uses `electron-updater` 6.8.9. Each signed package has a fixed `releaseOwner` matching this repository’s owner. Its private GitHub feed points to that owner’s `shenzhen-3D` repository and channel `latest`.
 
 ## Build artifacts without publishing
 
-Run `npm ci`, then `npm run package:electron:mac -- --release-owner=casimir-engineering` or `npm run package:electron:mac -- --release-owner=mirror-org`. Omitting the owner defaults to Casimir. The packaging script always runs a fresh production frontend build before creating its isolated staging directory. It invokes electron-builder with **`--publish never`**, even when publishing credentials or a Git tag are present. Publishing is a separate operator action.
+Run `npm ci`, then `npm run package:electron:mac -- --release-owner=<github-owner>`, replacing the placeholder with this repository’s owner. The packaging script always runs a fresh production frontend build before creating its isolated staging directory. It invokes electron-builder with **`--publish never`**, even when publishing credentials or a Git tag are present. Publishing is a separate operator action.
 
 For version `<version>`, the owner-labelled timestamped output directory under `artifacts/electron/` contains:
 
@@ -36,7 +36,7 @@ Verification performed with an actual unsigned `--dir --publish never` Mac build
 
 1. Freeze and commit the intended source; build the DMG and ZIP together. Inspect `build-info.json`, the app signature, packaged updater feed and generated `latest-mac.yml`. Run the native app smoke before publishing.
 2. Create a version-tagged GitHub release with a strictly newer app version. Upload the unmodified DMG, ZIP, `latest-mac.yml`, relevant blockmaps and provenance. Keep a draft until the complete asset set is present and verified.
-3. Publish each verified release as preview or stable as intended. Drafts are not eligible update releases. Upload the Casimir variant only to **casimir-engineering/shenzhen-3D** and the Mirror variant only to **mirror-org/shenzhen-3D**. The 0.1.6 upload guard verifies the adjacent provenance owner and source commit before uploading core assets. Verify each repository’s hashes against its own variant.
+3. Publish each verified release as preview or stable as intended. Drafts are not eligible update releases. Upload only artifacts whose signed owner matches this repository. The 0.1.6 upload guard verifies the adjacent provenance owner and source commit before uploading core assets. Verify each repository’s hashes against its own variant.
 4. Test an authorized recipient on an older installed version: check, download, verify and install the update. Also test missing/expired credentials, an unavailable feed and cancellation using the app's raster/model workflow as appropriate.
 
 Do not substitute a Tauri DMG, web ZIP, generic source archive or version-tag source ZIP for the updater ZIP. The updater artifact is electron-builder's ZIP containing the signed Chromium `.app`.

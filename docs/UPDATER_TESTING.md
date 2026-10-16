@@ -81,22 +81,19 @@ node electron/update-install-smoke.mjs \
   --reference-app="$notarized_output/mac-arm64/Shenzhen 3D.app" \
   --zip="$notarized_output/Shenzhen-3D-<version>-Apple-Silicon.zip" \
   --output="$PWD/artifacts/updater-e2e/<new-install-run>" \
-  --owner=casimir-engineering \
-  --check-mirror
+  --owner="<github-owner>"
 ```
 
-`--owner` accepts `casimir-engineering` or `mirror-org` and defaults to Casimir. Use a separate fresh fixture/profile for each owner, and pass that owner's frozen reference app and ZIP. For 0.1.6, the reference app's signed `build-info.json.releaseOwner` must match. The installed app's updater state must still report the chosen owner after replacement and relaunch.
-
-`--check-mirror` checks the other repository only before installation, then restores the chosen owner for the actual download. It requires an older switchable fixture such as the released 0.1.4 app. Fixed-origin fixtures are checked only against their own owner and reject `--check-mirror`; the installed 0.1.6 app is never asked to switch repositories.
+Set `--owner` to this repository’s owner and pass its frozen reference app and ZIP. Use a fresh isolated fixture/profile for each test. For 0.1.6, the reference app's signed `build-info.json.releaseOwner` must match. The installed app's updater state must still report the chosen owner after replacement and relaunch.
 
 The script requires a real fixture path under `artifacts/updater-e2e/` with the expected bundle layout and a new output directory. It refuses an app in Applications, a released original, path escapes, other running Shenzhen 3D apps, and preexisting native updater cache/ShipIt state. It redirects the JavaScript cache into the test output and creates only temporary, owned native cache links. An explicit temporary profile prevents profile migration.
 
-Checks cover packaged version/profile, existing CLI authorization encrypted in a mode-0600 settings file, both private feeds when `--check-mirror` is supplied, downloaded ZIP SHA-512, native Squirrel replacement, frozen target ASAR/signature/ticket/Gatekeeper, and new-version launch with the same temporary profile and expected update owner. Successful cleanup disconnects access, removes the isolated credential file and removes only test-owned native state. `result.json` records checks and cleanup status without credentials. If installation is still in progress after a failure, native state is retained for investigation rather than interrupted.
+Checks cover packaged version/profile, existing CLI authorization encrypted in a mode-0600 settings file, the configured private feed, downloaded ZIP SHA-512, native Squirrel replacement, frozen target ASAR/signature/ticket/Gatekeeper, and new-version launch with the same temporary profile and expected update owner. Successful cleanup disconnects access, removes the isolated credential file and removes only test-owned native state. `result.json` records checks and cleanup status without credentials. If installation is still in progress after a failure, native state is retained for investigation rather than interrupted.
 
 The test intercepts the app's confirmation response and disables `autoRunAppAfterInstall` only in the test process. Squirrel still downloads, verifies and replaces the signed bundle. The new version is launched manually with the explicit temporary profile, since Squirrel's [launch request](https://github.com/Squirrel/Squirrel.Mac/blob/main/Squirrel/SQRLShipItRequest.h) does not carry the original CLI arguments. This verifies replacement and launch; it does not verify automatic relaunch argument preservation or native dialog rendering.
 
 ## Recorded 0.1.4 result
 
-On 16 October 2026, both private feeds offered 0.1.4 to the signed synthetic 0.1.3 fixture. Casimir's ZIP downloaded with the expected SHA-512; native Squirrel replaced the fixture, and the resulting signed/notarized 0.1.4 app launched with the same isolated profile. Its ASAR matched the frozen target. Credential/cache/job/preference cleanup was verified.
+On 16 October 2026, the private feed offered 0.1.4 to the signed synthetic 0.1.3 fixture. The release ZIP downloaded with the expected SHA-512; native Squirrel replaced the fixture, and the resulting signed/notarized 0.1.4 app launched with the same isolated profile. Its ASAR matched the frozen target. Credential/cache/job/preference cleanup was verified.
 
-The fixture contains final updater code with an older package version. This is not evidence that the original 0.1.3 release, which lacked the updater, can self-update. The report is attached as `updater-install-report.json` to the [Casimir release](https://github.com/casimir-engineering/shenzhen-3D/releases/tag/preview-0.1.4). Apple's accepted ZIP/DMG submissions and final artifact fingerprints are recorded separately in the release provenance.
+The fixture contains final updater code with an older package version. This is not evidence that the original 0.1.3 release, which lacked the updater, can self-update. The report is attached as `updater-install-report.json` to this repository’s `preview-0.1.4` release. Apple's accepted ZIP/DMG submissions and final artifact fingerprints are recorded separately in the release provenance.

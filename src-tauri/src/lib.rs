@@ -79,7 +79,6 @@ fn desktop_menu(app: &tauri::App) -> tauri::Result<()> {
         Some(tauri::menu::AboutMetadata {
             name: Some("Shenzhen 3D".into()),
             version: Some(env!("CARGO_PKG_VERSION").into()),
-            copyright: Some("Casimir Engineering".into()),
             comments: Some("Local-first CAD, mesh and drawing viewer".into()),
             ..Default::default()
         }),

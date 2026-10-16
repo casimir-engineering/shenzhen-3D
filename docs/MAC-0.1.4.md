@@ -14,7 +14,7 @@ Open `Shenzhen-3D-0.1.4-Apple-Silicon.dmg`, drag Shenzhen 3D into Applications, 
 
 ## Private updates
 
-Open **Shenzhen 3D → Check for Updates…**, or select **Updates** in the footer. Connect the existing GitHub CLI login, or supply a token with read access to repository contents. Select Casimir Engineering; credentials must be authorized for the selected private repository. Preview releases are enabled by default for this private preview channel.
+Open **Shenzhen 3D → Check for Updates…**, or select **Updates** in the footer. Connect the existing GitHub CLI login, or supply a token with read access to repository contents. Select this private repository; credentials must be authorized to read it. Preview releases are enabled by default for this private preview channel.
 
 Credentials remain in the main process and are encrypted using macOS-backed Electron safe storage in a mode-0600 settings file. No credential is shipped in the app, feed, installer or renderer. Disconnect removes the saved credential. The updater selects the newest eligible stable or preview release, verifies the downloaded artifact hash and retains native Squirrel signature checks during installation. It never installs automatically when quitting.
 
@@ -34,7 +34,7 @@ This delivery refreshes the Apple Silicon Electron package. Mobile-sized browser
 
 ## Actual update installation
 
-Both published private feeds offered 0.1.4 to an isolated, signed test fixture reporting version 0.1.3. The app downloaded the Casimir ZIP, verified its SHA-512, and invoked native Squirrel installation. Only the fixture bundle was replaced. Its resulting ASAR matched the frozen release exactly, and the updated bundle passed signature, stapled-ticket and Gatekeeper checks before launching as 0.1.4. Temporary credentials and owned native update cache/ShipIt state were removed.
+The published private feed offered 0.1.4 to an isolated, signed test fixture reporting version 0.1.3. The app downloaded the release ZIP, verified its SHA-512, and invoked native Squirrel installation. Only the fixture bundle was replaced. Its resulting ASAR matched the frozen release exactly, and the updated bundle passed signature, stapled-ticket and Gatekeeper checks before launching as 0.1.4. Temporary credentials and owned native update cache/ShipIt state were removed.
 
 The fixture contains the final updater implementation with a synthetic older version; the original published 0.1.3 build did not include this updater. The install confirmation response was automated. Automatic relaunch was disabled for this test to preserve profile isolation, followed by a manual launch of the replaced bundle with the same temporary profile. Those limitations are recorded in `updater-install-report.json`.
 

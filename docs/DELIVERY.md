@@ -2,7 +2,7 @@
 
 Private review/rendering preview, 16 October 2026 (Asia/Shanghai).
 
-- [Casimir Engineering downloads](https://github.com/casimir-engineering/shenzhen-3D/releases/tag/preview-0.1.2)
+Downloads are available in this repository’s `preview-0.1.2` release.
 
 The update adds comments attached to parts, points and model features; portable `.sz3d` projects containing original source files, notes, measurements and units; shaded/edge/wireframe/dashed hidden-line modes; movable and uniform lighting; and genuine progressive WebGPU ray tracing with measurement overlays and PNG export. [Review files](REVIEW.md) and [rendering](RENDERING.md) describe use and limits.
 
@@ -16,7 +16,7 @@ Mac apps are Developer ID signed but not notarized. Windows installers are unsig
 
 ## Verification
 
-All nine platform jobs passed in [Casimir CI](https://github.com/casimir-engineering/shenzhen-3D/actions/runs/38800931430) at `44761a8`. Windows/Linux startup checks passed; these are not full interactive tests on those operating systems.
+All nine platform CI jobs passed at `44761a8`. Windows/Linux startup checks passed; these are not full interactive tests on those operating systems.
 
 Local checks passed: 115 unit tests, 12 exact-CAD checks and 18 production desktop/mobile browser workflows, with two expected viewport-specific skips. Sample STEP comments and exact measurements survived portable-project save/reopen. Offline reload/import, render controls, archive validation and unsupported-WebGPU recovery passed. Hardware tests verified genuine tracing, retained assembly instancing, measurement overlays, cancellation and exact display/export color parity. The packaged Chromium app passed 19 runtime checks, including native project open/save and tracing.
 

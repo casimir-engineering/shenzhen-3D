@@ -34,8 +34,8 @@ This notice/source-information bundle is not legal clearance or a claim
 that corresponding-source obligations have been fulfilled. Supply the
 matching source and required build/replacement material with private
 preview binaries. A URL alone is not represented as a complete source
-delivery arrangement. The product source repositories are:
-https://github.com/casimir-engineering/shenzhen-3D
+delivery arrangement. Product source is available in the private
+repository from which this release was downloaded.
 Recipients need access to the matching snapshot when it accompanies a
 binary. Native Rust/platform attribution requires a separate inventory
 for the actual package. See docs/THIRD_PARTY.md in the source repository.

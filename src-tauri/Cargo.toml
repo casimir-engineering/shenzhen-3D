@@ -2,9 +2,8 @@
 name = "shenzhen-3d"
 version = "0.1.6"
 description = "Local-first CAD and mesh viewer"
-authors = ["Casimir Engineering"]
+authors = ["Shenzhen 3D contributors"]
 license = "LicenseRef-Proprietary"
-repository = "https://github.com/casimir-engineering/shenzhen-3D"
 edition = "2024"
 rust-version = "1.90"
 

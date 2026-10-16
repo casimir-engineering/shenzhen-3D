@@ -2,7 +2,9 @@
 
 A CAD, mesh and drawing viewer for inspecting assemblies and taking engineering measurements. One React/Three.js interface runs in the browser/PWA, a Chromium desktop performance shell, and lightweight Tauri desktop/mobile shells. Model files are processed on the device.
 
-[Mac 0.1.6 release notes](docs/MAC-0.1.6.md) · [All-platform 0.1.2 packages](https://github.com/casimir-engineering/shenzhen-3D/releases/tag/preview-0.1.2) · [Platform delivery and validation](docs/DELIVERY.md)
+[Mac 0.1.6 release notes](docs/MAC-0.1.6.md) · [Platform delivery and validation](docs/DELIVERY.md)
+
+Download installers from this repository’s **Releases** page.
 
 ![Shenzhen 3D workbench measuring an 80 mm bracket](docs/images/workbench.png)
 
@@ -35,8 +37,6 @@ Open `http://localhost:1420`. Choose **Sample model** or open/drop a model. Sele
 Production web builds include a generated service worker for offline use after the app assets have been cached successfully. Installation starts after the welcome screen paints and a four-second grace period, then copies assets with at most two background requests; keep the first session online until that copy completes. Model files, annotations and saved measurement sessions are not stored by that cache; save a `.sz3d` project to retain them. Native shells bundle the application assets.
 
 See [building and testing](docs/BUILDING.md), [platform requirements and current evidence](docs/PLATFORMS.md), [CAD/measurement validation](docs/VALIDATION.md), [format validation](docs/FORMAT_VALIDATION.md), and [third-party components](docs/THIRD_PARTY.md). Configured platform builds are not evidence that every platform has been packaged or tested on a device.
-
-Private repositories: [Casimir Engineering](https://github.com/casimir-engineering/shenzhen-3D).
 
 The sample STEP assembly imports with shared geometries for its repeated parts. Local native macOS 0.1.2 import measured 3.02 seconds; device performance varies. The screenshot below shows an actual point measurement on that model.
 

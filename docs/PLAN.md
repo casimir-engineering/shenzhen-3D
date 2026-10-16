@@ -6,7 +6,7 @@ Started 2026-10-16 (Asia/Shanghai). Requested delivery window: under nine hours.
 A local-first engineering viewer for inspecting supplied parts, checking fit, and communicating dimensions. The model dominates the screen. A compact assembly tree sits left; a measurement inspector sits right. On touch devices, panels become sheets. File content stays on the device.
 
 ## Milestones and verification gates
-1. Foundation: private mirrored repositories, reproducible dependencies, CAD worker, STEP assembly benchmark. Verify a sample STEP assembly imports with topology, colors, transforms, and units.
+1. Foundation: a private repository, reproducible dependencies, CAD worker, STEP assembly benchmark. Verify a sample STEP assembly imports with topology, colors, transforms, and units.
 2. Viewer: GPU rendering, BVH selection, camera presets, orthographic/perspective, trackpad/mouse/touch controls, assembly visibility/isolation, section plane, exploded view, transparency. Verify browser desktop/mobile layouts and real rendered geometry.
 3. Measurement: point snapping, signed XYZ deltas and straight-line minimum distance, face/edge selection, CAD feature metrics and exact minimum distance where the kernel supports it, mesh approximations clearly identified, angles, surface paths, unit override, saved/exported measurements. Test against analytic fixtures and the sample STEP model.
 4. Formats: STEP/STP, IGES/IGS, BREP, STL, OBJ/MTL, GLTF/GLB, 3MF, PLY, OFF, FBX, DAE, KiCad WRL/VRML, DXF, SVG, DWG. Preserve colors/materials/textures as provided. Report format/entity limitations rather than silently claiming full fidelity.
@@ -47,7 +47,7 @@ Spacing: 4 px base, 12–16 px panel padding; compact desktop controls, 44 px to
 2. Review interface: numbered model pins, inline notes, edit/resolve/delete, focus-on-anchor, desktop/mobile inspector and explicit project save/share. Test real feature selection, reload, units and companion assets.
 3. Display: shaded, shaded edges, wireframe and dashed hidden lines; adjustable key direction/intensity and uniform fill. Preserve original measurement geometry and optimized default rendering. Verify pixels, clipping, hide/explode and disposal.
 4. Progressive GPU ray tracing: capability-gated backend with asynchronous preparation, explicit progress and memory limits, fast raster navigation and recovery. Verify actual traced output rather than relabeling raster shading.
-5. Package the verified update across all targets and mirror private commits/releases. Preserve the completed 0.1.1 performance checkpoint and its measured evidence.
+5. Package the verified update across all targets and publish private commits/releases. Preserve the completed 0.1.1 performance checkpoint and its measured evidence.
 
 
 ## Review/rendering delivery complete
