@@ -58,6 +58,8 @@ test("delivery is limited to authorized repositories and the exact preview draft
   for (const patch of [
     { repo: "other/repo" },
     { tag: "preview-0.1.3" },
+    { tag: "preview-0.1.6" },
+    { tag: "v0.1.5" },
     { name: "../app.dmg" },
     { sha256: "invalid" },
     { commit: "main" },
@@ -67,6 +69,21 @@ test("delivery is limited to authorized repositories and the exact preview draft
     { cleanupParts: -1 },
   ])
     assert.throws(() => validateDirectInput({ ...input, ...patch }));
+});
+test("0.1.5 support preserves exact draft, source and repository guards", () => {
+  const next = { ...input, tag: "preview-0.1.5" };
+  for (const repo of [
+    "mirror-org/shenzhen-3D",
+    "casimir-engineering/shenzhen-3D",
+  ])
+    assert.equal(validateDirectInput({ ...next, repo }).tag, "preview-0.1.5");
+  const nextRelease = { ...release, tag_name: next.tag };
+  verifyDraft(nextRelease, next);
+  assert.throws(() => verifyDraft(release, next));
+  assert.throws(() => verifyDraft({ ...nextRelease, draft: false }, next));
+  assert.throws(() =>
+    verifyDraft({ ...nextRelease, target_commitish: "c".repeat(40) }, next),
+  );
 });
 test("published releases and source changes are rejected", () => {
   verifyDraft(release, input);
