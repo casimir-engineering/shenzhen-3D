@@ -17,4 +17,10 @@ A sample STEP and a DXF passed three repeated import cycles with stable geometry
 
 Isolated native recent-file tests reopen files and OBJ/MTL companions across a complete Electron restart. Browser tests cover a 33 MiB file after reload, companion bytes, distinct same-name files, quota failures and missing data. File-association metadata is validated against installed schemas and generated macOS plist/Linux MIME output.
 
-Final signing, notarization and release evidence will accompany the packaged delivery.
+The signed Apple Silicon package passed 20 runtime checks and nine native file-opening scenarios in isolated profiles. Verification covered all 101 bundled frontend files, 16 production dependencies, the frozen source commit, all 21 file associations, and the app's fixed update repository.
+
+## Delivery
+
+The app and DMG are Developer ID signed and independently accepted by Apple notarization. Tickets are attached to both, including the app embedded in the updater ZIP and installer. Signature, Gatekeeper, archive-integrity and final artifact-hash checks passed. The final mounted DMG was inspected in Finder with its Applications shortcut and both Retina background representations.
+
+The frozen runtime is `da40fdd61012f5f9f856b624601be4a02c2b0168`. Later documentation commits do not change the packaged application.
