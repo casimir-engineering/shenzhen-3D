@@ -10,7 +10,21 @@ import {
   planAsset,
   curlConfig,
   uploadDirect,
+  parseDirectArgs,
 } from "./upload-release-asset-direct.mjs";
+
+test("CLI accepts SHA-256 options and rejects unknown or duplicate options", () => {
+  assert.deepEqual(
+    parseDirectArgs([
+      "--sha256=abc",
+      "--replace-sha256=def",
+      "--cleanup-part-count=11",
+    ]),
+    { sha256: "abc", "replace-sha256": "def", "cleanup-part-count": "11" },
+  );
+  assert.throws(() => parseDirectArgs(["--sha256=abc", "--sha256=def"]));
+  assert.throws(() => parseDirectArgs(["--unknown=value"]));
+});
 
 const input = {
   repo: "mirror-org/shenzhen-3D",

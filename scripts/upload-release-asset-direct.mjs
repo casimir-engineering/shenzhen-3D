@@ -307,27 +307,31 @@ export async function uploadDirect(
   );
   return { id: asset.id, sha256: input.sha256, size: input.size };
 }
+export function parseDirectArgs(args) {
+  const allowed = new Set([
+    "repo",
+    "tag",
+    "commit",
+    "file",
+    "sha256",
+    "replace-sha256",
+    "cleanup-part-count",
+  ]);
+  const values = {};
+  for (const arg of args) {
+    const match = /^--([a-z0-9-]+)=(.*)$/.exec(arg);
+    if (!match || !allowed.has(match[1]) || values[match[1]] !== undefined)
+      throw Error("Invalid or duplicate CLI option.");
+    values[match[1]] = match[2];
+  }
+  return values;
+}
 if (
   process.argv[1] &&
   path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
   try {
-    const allowed = new Set([
-        "repo",
-        "tag",
-        "commit",
-        "file",
-        "sha256",
-        "replace-sha256",
-        "cleanup-part-count",
-      ]),
-      values = {};
-    for (const arg of process.argv.slice(2)) {
-      const match = /^--([a-z-]+)=(.*)$/.exec(arg);
-      if (!match || !allowed.has(match[1]) || values[match[1]] !== undefined)
-        throw Error("Invalid or duplicate CLI option.");
-      values[match[1]] = match[2];
-    }
+    const values = parseDirectArgs(process.argv.slice(2));
     const filename = path.resolve(values.file || "");
     const stat = await fs.stat(filename);
     if (!stat.isFile()) throw Error("Input must be a regular file.");
