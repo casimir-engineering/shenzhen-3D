@@ -413,6 +413,7 @@ function App() {
   const load = useCallback(
     async (files: File[]) => {
       if (!files.length) return;
+      recentFiles.current.clear();
       const generation = ++loadEpoch.current;
       cad.cancel();
       clear();
@@ -483,10 +484,13 @@ function App() {
           { name: recentName, format: projectFile ? "sz3d" : model.format },
           ...recent.filter((r) => r.name !== recentName),
         ].slice(0, 6);
-        recentFiles.current.set(recentName, files);
-        for (const name of recentFiles.current.keys())
-          if (!next.some((entry) => entry.name === name))
-            recentFiles.current.delete(name);
+        // Keep only a small last-opened file set for instant reopen. Native file
+        // adapters can hold Blob bytes in RAM, so history must not retain assemblies.
+        if (
+          files.reduce((bytes, file) => bytes + file.size, 0) <=
+          32 * 1024 * 1024
+        )
+          recentFiles.current.set(recentName, files);
         setRecent(next);
         localStorage.setItem("shenzhen-recent", JSON.stringify(next));
         if (window.innerWidth < 900) setLeft(false);
