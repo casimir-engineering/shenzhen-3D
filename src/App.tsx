@@ -1,3 +1,4 @@
+import { version as appVersion } from "../package.json";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Vector3 } from "three";
 import { createId } from "./core/id";
@@ -2141,7 +2142,7 @@ function App() {
         <button onClick={() => settings.current?.showModal()}>
           {unit} <ChevronDown size={11} />
         </button>
-        <span className="version">v0.1.2</span>
+        <span className="version">v{appVersion}</span>
       </footer>
       {toast && (
         <div className="toast" role="status">
