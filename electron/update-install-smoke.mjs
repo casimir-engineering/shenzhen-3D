@@ -8,6 +8,9 @@ import { _electron as electron, expect } from "@playwright/test";
 const root = process.cwd();
 const option = (name) =>
   process.argv.find((x) => x.startsWith(`--${name}=`))?.slice(name.length + 3);
+const owner = option("owner") ?? "casimir-engineering";
+if (!["casimir-engineering", "mirror-org"].includes(owner))
+  throw Error("--owner must be casimir-engineering or mirror-org");
 for (const name of ["fixture", "reference-app", "zip", "output"])
   if (!option(name)) throw Error(`Missing --${name}=absolute-path`);
 const fixture = await fs.realpath(option("fixture")),
@@ -111,6 +114,28 @@ const fixtureProvenance = JSON.parse(
     "build-info.json",
   ),
 );
+const referenceProvenance = JSON.parse(
+  createRequire(import.meta.url)("@electron/asar").extractFile(
+    path.join(reference, "Contents/Resources/app.asar"),
+    "build-info.json",
+  ),
+);
+if (
+  (referenceProvenance.releaseOwner !== undefined ||
+    targetVersion === "0.1.6") &&
+  referenceProvenance.releaseOwner !== owner
+)
+  throw Error(
+    "Reference app releaseOwner differs from the requested update owner",
+  );
+if (fixtureProvenance.releaseOwner !== undefined) {
+  if (fixtureProvenance.releaseOwner !== owner)
+    throw Error("Fixed-origin fixture cannot switch to another update owner");
+  if (process.argv.includes("--check-mirror"))
+    throw Error(
+      "--check-mirror requires an older fixture with switchable update origin",
+    );
+}
 const syntheticFixture = !!fixtureProvenance.fixture;
 if (
   !/^\d+\.\d+\.\d+$/.test(sourceVersion) ||
@@ -126,6 +151,8 @@ const evidence = {
   profile,
   sourceVersion,
   targetVersion,
+  releaseOwner: owner,
+  referenceReleaseOwner: referenceProvenance.releaseOwner,
   fixtureKind: syntheticFixture
     ? "synthetic-version-override"
     : "released-app-copy",
@@ -233,17 +260,20 @@ try {
       return { response: 0, checkboxChecked: false };
     };
   }, jsCache);
-  await page.evaluate(() =>
-    window.shenzhenUpdates.configure({
-      automatic: false,
-      repository: "casimir-engineering",
-      prereleases: true,
-    }),
+  await page.evaluate(
+    (owner) =>
+      window.shenzhenUpdates.configure({
+        automatic: false,
+        repository: owner,
+        prereleases: true,
+      }),
+    owner,
   );
   const connection = await page.evaluate(() =>
     window.shenzhenUpdates.useGitHubCLI(),
   );
   expect(connection.connected).toBe(true);
+  expect(connection.repository).toBe(owner);
   const settingsFile = path.join(profile, "updates.json");
   const saved = JSON.parse(await fs.readFile(settingsFile, "utf8"));
   expect(typeof saved.encryptedToken).toBe("string");
@@ -255,13 +285,18 @@ try {
     { settingsMode: "0600" },
   );
   const owners = process.argv.includes("--check-mirror")
-    ? ["casimir-engineering", "mirror-org"]
-    : ["casimir-engineering"];
-  for (const owner of owners) {
-    if (owner !== "casimir-engineering") {
+    ? [
+        owner,
+        owner === "casimir-engineering"
+          ? "mirror-org"
+          : "casimir-engineering",
+      ]
+    : [owner];
+  for (const feedOwner of owners) {
+    if (feedOwner !== owner) {
       await page.evaluate(
         (owner) => window.shenzhenUpdates.configure({ repository: owner }),
-        owner,
+        feedOwner,
       );
       expect(
         (await page.evaluate(() => window.shenzhenUpdates.useGitHubCLI()))
@@ -270,27 +305,32 @@ try {
     }
     const available = await page.evaluate(() => window.shenzhenUpdates.check());
     expect(available.status).toBe("available");
+    expect(available.repository).toBe(feedOwner);
     expect(available.availableVersion).toBe(targetVersion);
     await record(
-      `Private GitHub ${owner} feed offered exactly ${targetVersion}`,
+      `Private GitHub ${feedOwner} feed offered exactly ${targetVersion}`,
     );
   }
   if (owners.length > 1) {
-    await page.evaluate(() =>
-      window.shenzhenUpdates.configure({ repository: "casimir-engineering" }),
+    await page.evaluate(
+      (owner) => window.shenzhenUpdates.configure({ repository: owner }),
+      owner,
     );
     expect(
       (await page.evaluate(() => window.shenzhenUpdates.useGitHubCLI()))
         .connected,
     ).toBe(true);
-    expect(
-      (await page.evaluate(() => window.shenzhenUpdates.check()))
-        .availableVersion,
-    ).toBe(targetVersion);
+    const restored = await page.evaluate(() => window.shenzhenUpdates.check());
+    expect(restored.availableVersion).toBe(targetVersion);
+    expect(restored.repository).toBe(owner);
+    await record("Chosen update owner restored before download", {
+      repository: owner,
+    });
   }
   const downloading = page.evaluate(() => window.shenzhenUpdates.download());
   const downloaded = await downloading;
   expect(downloaded.status).toBe("ready");
+  expect(downloaded.repository).toBe(owner);
   const zips = [];
   async function scan(dir) {
     for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
@@ -353,10 +393,14 @@ try {
     profile: app.getPath("userData"),
   }));
   expect(updated).toEqual({ packaged: true, version: targetVersion, profile });
+  const installedUpdateState = await page.evaluate(() =>
+    window.shenzhenUpdates.getState(),
+  );
+  expect(installedUpdateState.repository).toBe(owner);
   await page.evaluate(() => window.shenzhenUpdates.disconnect());
   await record(
     `Replaced ${targetVersion} app relaunched manually with same isolated profile`,
-    { runtime: updated },
+    { runtime: updated, updateRepository: installedUpdateState.repository },
   );
   evidence.success = true;
 } catch {
