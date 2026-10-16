@@ -155,9 +155,16 @@ function gh(args, input) {
 const api = async (endpoint, args = []) =>
   JSON.parse(await gh(["api", endpoint, ...args]));
 async function releaseAssets(repo, tag) {
-  const release = await api(
-    `repos/${repo}/releases/tags/${encodeURIComponent(tag)}`,
-  );
+  // The release-by-tag REST endpoint excludes drafts. Listing authenticated
+  // releases resolves both drafts and published releases without publishing.
+  const releases = await api(`repos/${repo}/releases?per_page=100`, [
+    "--paginate",
+    "--slurp",
+  ]);
+  const matches = releases.flat().filter((release) => release.tag_name === tag);
+  if (matches.length !== 1 || !Number.isSafeInteger(matches[0].id))
+    throw Error("An unambiguous release for this tag could not be found.");
+  const release = matches[0];
   const pages = await api(
     `repos/${repo}/releases/${release.id}/assets?per_page=100`,
     ["--paginate", "--slurp"],
