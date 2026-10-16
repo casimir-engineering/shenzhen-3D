@@ -2,6 +2,7 @@
 // node scripts/upload-release-asset.mjs --repo=mirror-org/shenzhen-3D \
 //   --tag=preview-0.1.3 --file=artifacts/releases-0.1.3/Shenzhen-3D-0.1.3-Apple-Silicon.dmg
 // Auth stays in gh's existing credential store/environment. No tokens are read or logged.
+// Defaults to 8 MiB parts; override with --chunk-mib=1..24 when appropriate.
 import fs from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import path from "node:path";
@@ -427,7 +428,7 @@ async function localUpload(args) {
   const name = path.basename(filename),
     repo = value("repo"),
     tag = value("tag");
-  const chunkMiB = Number(value("chunk-mib") || 24);
+  const chunkMiB = Number(value("chunk-mib") || 8);
   if (!Number.isInteger(chunkMiB) || chunkMiB < 1 || chunkMiB > 24)
     throw Error("Chunk size must be an integer from 1 to 24 MiB.");
   const chunkBytes = chunkMiB * 1024 * 1024;
