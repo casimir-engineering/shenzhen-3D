@@ -18,7 +18,7 @@ Open **Shenzhen 3D → Check for Updates…**, or select **Updates** in the foot
 
 Credentials remain in the main process and are encrypted using macOS-backed Electron safe storage in a mode-0600 settings file. No credential is shipped in the app, feed, installer or renderer. Disconnect removes the saved credential. The updater selects the newest eligible stable or preview release, verifies the downloaded artifact hash and retains native Squirrel signature checks during installation. It never installs automatically when quitting.
 
-The app and disk image are Developer ID signed. **This build is not notarized:** no notarization credentials were configured. Signing alone does not establish notarization, and downloaded copies may encounter Gatekeeper restrictions.
+The app and disk image are **Developer ID signed, Apple-notarized and stapled**, using INTUITION Robotique & Technologies (team `66LJ4BV7Q3`). Apple accepted app submission `fc951f8e-2370-4ef0-ac72-22238aa95130` and DMG submission `0dd2a9c7-a9fc-47ac-8065-65f20c1d6aaf`. The final app, DMG and embedded apps extracted from both distributions passed ticket validation, signature verification and Gatekeeper assessment. The updater ZIP was rebuilt after app stapling, and its feed and blockmaps were regenerated after the final DMG staple.
 
 ## Validation
 
@@ -34,6 +34,6 @@ This delivery refreshes the Apple Silicon Electron package. Mobile-sized browser
 
 ## Artifacts
 
-The DMG is 140,849,393 bytes, SHA-256 `1f6d1089acedc62612180f8c0ec09afe8fe900814dc6682cdf59ae681e23cb86`. The updater ZIP is 140,229,780 bytes, SHA-256 `f80fe7e12cf6809a6f16e87b0763919e1fb6a06385a703b70a76c8fcb5310cd8`. The release feed includes matching SHA-512 fingerprints.
+The DMG is 140,847,210 bytes, SHA-256 `05f87af4e3969ebf15c73b15ed240101414c22db76a3472d0a6651c720ec28bf`. The updater ZIP is 140,231,389 bytes, SHA-256 `5cb566752e46f986df2db6d28fd9b51de34c81ce5c0706ab2b91968e79cbbcb9`. The release feed includes matching SHA-512 fingerprints.
 
 Local delivery: `~/Downloads/Shenzhen-3D-0.1.4-Apple-Silicon.dmg`; app and evidence: `artifacts/releases-0.1.4/Shenzhen 3D.app` and adjacent reports.
