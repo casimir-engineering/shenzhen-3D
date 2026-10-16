@@ -21,15 +21,29 @@ try {
   if(!software) check(/Apple.*Metal|ANGLE.*Apple/i.test(renderer)&&!/SwiftShader/i.test(renderer),'Actual Apple hardware renderer');
   for(const is2D of [false,true]) for(const orthographic of [false,true]) {
     const initial=await page.evaluate(({is2D,orthographic})=>window.measurementNavigation.reset(is2D,orthographic),{is2D,orthographic});
-    const mapping=await page.evaluate(()=>{const c=window.measurementNavigation.viewer.controls;return [c.mouseButtons.LEFT,c.mouseButtons.MIDDLE];});
-    check(mapping[0]===mapping[1],`Middle maps to left (${is2D?'2D':'3D'}, ${orthographic?'orthographic':'perspective'})`);
-    const drag=async button=>{await page.mouse.move(500,350);await page.mouse.down({button});await page.mouse.move(560,385,{steps:5});await page.mouse.up({button});return state();};
+    const mode=`${is2D?'2D':'3D'} ${orthographic?'orthographic':'perspective'}`;
+    const drag=async(button,dx=60,dy=35)=>{await page.mouse.move(500,350);await page.mouse.down({button});await page.mouse.move(500+dx,350+dy,{steps:5});await page.mouse.up({button});return state();};
     const left=await drag('left');
+    check(is2D ? close(left.quaternion,initial.quaternion)&&!close(left.target,initial.target) : !close(left.quaternion,initial.quaternion)&&close(left.target,initial.target),`${mode}: left drag still ${is2D?'pans':'orbits'}`);
     await page.evaluate(initial=>window.measurementNavigation.restore(initial),initial);
     const middle=await drag('middle');
-    check(close(left.position,middle.position)&&close(left.target,middle.target)&&close(left.quaternion,middle.quaternion)&&left.zoom===middle.zoom,'Middle drag reproduces left camera motion');
-    check(Math.abs(middle.distance-initial.distance)<1e-6&&middle.zoom===initial.zoom,'Middle drag never dollies');
-    check(middle.picks===0,'Dragging does not select geometry');
+    check(close(middle.quaternion,initial.quaternion)&&Math.abs(middle.distance-initial.distance)<1e-6&&middle.zoom===initial.zoom,`${mode}: middle drag preserves orientation, distance and zoom`);
+    const cameraTranslation=middle.position.map((value,index)=>value-initial.position[index]);
+    const targetTranslation=middle.target.map((value,index)=>value-initial.target[index]);
+    check(Math.hypot(...cameraTranslation)>1e-6&&close(cameraTranslation,targetTranslation),`${mode}: middle drag translates camera and target together`);
+    await page.evaluate(initial=>window.measurementNavigation.restore(initial),initial);
+    // Wheel deltas describe scrolling, opposite a grabbed surface's drag direction.
+    await page.mouse.wheel(-60,-35);
+    await page.waitForTimeout(40);
+    const swiped=await state();
+    const wheel=await page.evaluate(()=>window.measurementNavigation.wheelSample());
+    check(wheel.deltaMode===0&&wheel.deltaX<0&&wheel.deltaY<0,`${mode}: actual trackpad event carries negative pixel scroll deltas`);
+    await page.evaluate(initial=>window.measurementNavigation.restore(initial),initial);
+    // CDP wheel scaling varies by host display. Compare the actual DOM pixel
+    // deltas with an equally sized surface drag, rather than assumed input units.
+    const matchingMiddle=await drag('middle',-wheel.deltaX,-wheel.deltaY);
+    check(close(matchingMiddle.position,swiped.position)&&close(matchingMiddle.target,swiped.target)&&close(matchingMiddle.quaternion,swiped.quaternion)&&matchingMiddle.zoom===swiped.zoom,`${mode}: middle drag matches oppositely signed trackpad scrolling`);
+    check(middle.picks===0&&left.picks===0&&swiped.picks===0&&matchingMiddle.picks===0,`${mode}: navigation does not select geometry`);
   }
   await page.evaluate(()=>window.measurementNavigation.reset());
   await page.mouse.move(500,350);
@@ -47,6 +61,23 @@ try {
   await page.waitForTimeout(40);
   const wheeled=await state();
   check(wheeled.distance>pinched.distance,'Discrete mouse wheel remains zoom');
+  const sensitivity=[];
+  for(const orthographic of [false,true]) for(const pinch of [false,true]) {
+    const initial=await page.evaluate(orthographic=>window.measurementNavigation.reset(false,orthographic),orthographic);
+    const configuredSpeed=await page.evaluate(()=>window.measurementNavigation.viewer.controls.zoomSpeed);
+    const response=async speed=>{
+      await page.evaluate(({initial,speed})=>{const fixture=window.measurementNavigation;fixture.restore(initial);fixture.viewer.controls.zoomSpeed=speed;},{initial,speed});
+      await page.mouse.move(500,350);
+      if(pinch) await page.locator('canvas').dispatchEvent('wheel',{deltaY:-2,deltaX:0,deltaMode:0,ctrlKey:true,clientX:500,clientY:350});
+      else {await page.waitForTimeout(200);await page.mouse.wheel(0,100);}
+      await page.waitForTimeout(40);
+      const after=await state();
+      return Math.abs(Math.log(orthographic?after.zoom/initial.zoom:after.distance/initial.distance));
+    };
+    const previous=await response(1.1),current=await response(configuredSpeed);
+    check(current>previous+1e-8&&current<previous*1.5,`${orthographic?'Orthographic':'Perspective'} ${pinch?'pinch':'wheel'} zoom is modestly more sensitive for identical input`);
+    sensitivity.push({projection:orthographic?'orthographic':'perspective',input:pinch?'pinch':'wheel',previous,current,ratio:current/previous});
+  }
   await page.evaluate(()=>window.measurementNavigation.reset());
   await page.mouse.move(500,350);await page.mouse.down();await page.mouse.move(550,350,{steps:3});await page.mouse.move(500,350,{steps:3});await page.mouse.up();
   check((await state()).picks===0,'Drag returning to its starting position does not create a selection');
@@ -85,7 +116,7 @@ try {
   await page.evaluate(()=>window.measurementNavigation.viewer.setOverlay({points:[[0,0,0],[4,-3,2]],showAxes:false}));
   check(await page.evaluate(()=>window.measurementNavigation.viewer.axisLines.length)===0,'App can explicitly suppress clearance or other component guides');
   expect(errors).toEqual([]);
-  const report={date:new Date().toISOString(),renderer,checks,errors};
+  const report={date:new Date().toISOString(),renderer,checks,zoomSensitivity:sensitivity,errors};
   await fs.writeFile('artifacts/perf/measurement-navigation.json',JSON.stringify(report,null,2));
   console.log(JSON.stringify(report,null,2));
 } finally {await browser.close();}
