@@ -5,12 +5,18 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { _electron as electron, expect } from "@playwright/test";
+import { validOwner } from "../scripts/upload-release-asset-config.mjs";
 const root = process.cwd();
 const option = (name) =>
   process.argv.find((x) => x.startsWith(`--${name}=`))?.slice(name.length + 3);
-const owner = option("owner") ?? "casimir-engineering";
-if (!["casimir-engineering", "mirror-org"].includes(owner))
-  throw Error("--owner must be casimir-engineering or mirror-org");
+const owner = option("owner");
+if (!validOwner(owner))
+  throw Error("An explicit valid --owner=repository-owner is required");
+if (
+  process.argv.includes("--check-mirror") ||
+  option("check-owner") !== undefined
+)
+  throw Error("Use a separate isolated fixture for each explicit update owner");
 for (const name of ["fixture", "reference-app", "zip", "output"])
   if (!option(name)) throw Error(`Missing --${name}=absolute-path`);
 const fixture = await fs.realpath(option("fixture")),
@@ -131,10 +137,6 @@ if (
 if (fixtureProvenance.releaseOwner !== undefined) {
   if (fixtureProvenance.releaseOwner !== owner)
     throw Error("Fixed-origin fixture cannot switch to another update owner");
-  if (process.argv.includes("--check-mirror"))
-    throw Error(
-      "--check-mirror requires an older fixture with switchable update origin",
-    );
 }
 const syntheticFixture = !!fixtureProvenance.fixture;
 if (
@@ -261,13 +263,13 @@ try {
     };
   }, jsCache);
   await page.evaluate(
-    (owner) =>
+    ({ owner, fixedOrigin }) =>
       window.shenzhenUpdates.configure({
         automatic: false,
-        repository: owner,
+        ...(fixedOrigin ? {} : { repository: owner }),
         prereleases: true,
       }),
-    owner,
+    { owner, fixedOrigin: fixtureProvenance.releaseOwner !== undefined },
   );
   const connection = await page.evaluate(() =>
     window.shenzhenUpdates.useGitHubCLI(),
@@ -284,49 +286,11 @@ try {
     "Existing GitHub CLI authorization encrypted only in temporary profile",
     { settingsMode: "0600" },
   );
-  const owners = process.argv.includes("--check-mirror")
-    ? [
-        owner,
-        owner === "casimir-engineering"
-          ? "mirror-org"
-          : "casimir-engineering",
-      ]
-    : [owner];
-  for (const feedOwner of owners) {
-    if (feedOwner !== owner) {
-      await page.evaluate(
-        (owner) => window.shenzhenUpdates.configure({ repository: owner }),
-        feedOwner,
-      );
-      expect(
-        (await page.evaluate(() => window.shenzhenUpdates.useGitHubCLI()))
-          .connected,
-      ).toBe(true);
-    }
-    const available = await page.evaluate(() => window.shenzhenUpdates.check());
-    expect(available.status).toBe("available");
-    expect(available.repository).toBe(feedOwner);
-    expect(available.availableVersion).toBe(targetVersion);
-    await record(
-      `Private GitHub ${feedOwner} feed offered exactly ${targetVersion}`,
-    );
-  }
-  if (owners.length > 1) {
-    await page.evaluate(
-      (owner) => window.shenzhenUpdates.configure({ repository: owner }),
-      owner,
-    );
-    expect(
-      (await page.evaluate(() => window.shenzhenUpdates.useGitHubCLI()))
-        .connected,
-    ).toBe(true);
-    const restored = await page.evaluate(() => window.shenzhenUpdates.check());
-    expect(restored.availableVersion).toBe(targetVersion);
-    expect(restored.repository).toBe(owner);
-    await record("Chosen update owner restored before download", {
-      repository: owner,
-    });
-  }
+  const available = await page.evaluate(() => window.shenzhenUpdates.check());
+  expect(available.status).toBe("available");
+  expect(available.repository).toBe(owner);
+  expect(available.availableVersion).toBe(targetVersion);
+  await record(`Private GitHub ${owner} feed offered exactly ${targetVersion}`);
   const downloading = page.evaluate(() => window.shenzhenUpdates.download());
   const downloaded = await downloading;
   expect(downloaded.status).toBe("ready");

@@ -12,14 +12,10 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import { hashFile } from "./upload-release-asset.mjs";
-
-const REPOS = new Set([
-  "casimir-engineering/shenzhen-3D",
-  "mirror-org/shenzhen-3D",
-]);
+import { assertAuthorizedRepository } from "./upload-release-asset-config.mjs";
 const TAGS = new Set(["preview-0.1.4", "preview-0.1.5", "preview-0.1.6"]);
 export function validateDirectInput(input) {
-  if (!REPOS.has(input.repo)) throw Error("Repository is not authorized.");
+  assertAuthorizedRepository(input.repo);
   // Replacement authorization is deliberately limited to the current drafts.
   if (!TAGS.has(input.tag))
     throw Error("Direct delivery is restricted to authorized preview drafts.");

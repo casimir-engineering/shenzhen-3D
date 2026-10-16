@@ -61,7 +61,7 @@ try {
       version: "0.1.4",
       status: "idle",
       automatic: true,
-      repository: "casimir-engineering",
+      repository: "fixture-source",
       prereleases: true,
       connected: false,
       message: "Connect to receive private releases.",
@@ -74,7 +74,7 @@ try {
     globalThis.__updatesUiFixture = {
       configurations,
       setRepository(owner) {
-        if (!["casimir-engineering", "mirror-org"].includes(owner))
+        if (!["fixture-source", "fixture-alternate"].includes(owner))
           throw Error("Invalid fixture origin");
         state.repository = owner;
         return send();
@@ -131,9 +131,9 @@ try {
     page.getByRole("dialog", { name: "Updates", exact: true }),
   ).toBeVisible();
   const source = page.getByLabel("Release repository", { exact: true });
-  for (const owner of ["casimir-engineering", "mirror-org"]) {
+  for (const owner of ["fixture-source", "fixture-alternate"]) {
     // Mount a fresh panel for each simulated build origin; there is no UI switch.
-    if (owner === "mirror-org") {
+    if (owner === "fixture-alternate") {
       await page.keyboard.press("Escape");
       await expect(
         page.getByRole("dialog", { name: "Updates", exact: true }),
@@ -196,7 +196,7 @@ try {
     page.getByRole("button", { name: "Restart & install" }),
   ).toBeVisible();
   await expect(source).toHaveJSProperty("readOnly", true);
-  await expect(source).toHaveValue("mirror-org / shenzhen-3D");
+  await expect(source).toHaveValue("fixture-alternate / shenzhen-3D");
   await page.getByRole("button", { name: "Restart & install" }).click();
   await expect(page.getByText("Install confirmation canceled.")).toBeVisible();
   await fs.mkdir("artifacts/perf", { recursive: true });
@@ -209,7 +209,7 @@ try {
   ).not.toBeVisible();
   expect(await page.locator("canvas").count()).toBe(0);
   console.log(
-    "PASS: lazy update UI, private access form, preferences, read-only Casimir sources, no repository configuration calls, availability, download progress, install state, Escape, renderer-free startup",
+    "PASS: lazy update UI, private access form, preferences, read-only fixture sources, no repository configuration calls, availability, download progress, install state, Escape, renderer-free startup",
   );
 } finally {
   await application.close();

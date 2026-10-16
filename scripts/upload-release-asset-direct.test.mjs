@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -13,6 +13,32 @@ import {
   parseDirectArgs,
   verifyArtifactMetadata,
 } from "./upload-release-asset-direct.mjs";
+
+const operatorDirectory = await fs.mkdtemp(
+  path.join(os.tmpdir(), "upload-operator-test-"),
+);
+const originalOperatorConfig = process.env.SHENZHEN_RELEASE_UPLOAD_CONFIG;
+process.env.SHENZHEN_RELEASE_UPLOAD_CONFIG = path.join(
+  operatorDirectory,
+  "operator.json",
+);
+await fs.writeFile(
+  process.env.SHENZHEN_RELEASE_UPLOAD_CONFIG,
+  JSON.stringify({
+    version: 1,
+    repositories: [
+      "fixture-source/shenzhen-3D",
+      "fixture-alternate/shenzhen-3D",
+    ],
+  }),
+  { mode: 0o600 },
+);
+after(async () => {
+  if (originalOperatorConfig === undefined)
+    delete process.env.SHENZHEN_RELEASE_UPLOAD_CONFIG;
+  else process.env.SHENZHEN_RELEASE_UPLOAD_CONFIG = originalOperatorConfig;
+  await fs.rm(operatorDirectory, { recursive: true, force: true });
+});
 
 test("0.1.6 binary, feed, blockmap and provenance require matching adjacent owner/source metadata", async () => {
   const directory = await fs.mkdtemp(
@@ -38,7 +64,7 @@ test("0.1.6 binary, feed, blockmap and provenance require matching adjacent owne
         verifyArtifactMetadata(value),
         /Adjacent build-info/,
       );
-      for (const owner of ["mirror-org", "casimir-engineering"]) {
+      for (const owner of ["fixture-alternate", "fixture-source"]) {
         const own = { ...value, repo: `${owner}/shenzhen-3D` };
         await fs.writeFile(
           path.join(directory, "build-info.json"),
@@ -46,7 +72,9 @@ test("0.1.6 binary, feed, blockmap and provenance require matching adjacent owne
         );
         await verifyArtifactMetadata(own);
         const other =
-          owner === "mirror-org" ? "casimir-engineering" : "mirror-org";
+          owner === "fixture-alternate"
+            ? "fixture-source"
+            : "fixture-alternate";
         await assert.rejects(
           verifyArtifactMetadata({ ...own, repo: `${other}/shenzhen-3D` }),
           /releaseOwner/,
@@ -97,7 +125,7 @@ test("CLI accepts SHA-256 options and rejects unknown or duplicate options", () 
 });
 
 const input = {
-  repo: "mirror-org/shenzhen-3D",
+  repo: "fixture-alternate/shenzhen-3D",
   tag: "preview-0.1.4",
   commit: "a".repeat(40),
   filename: "/tmp/app.dmg",
@@ -112,7 +140,7 @@ const release = {
   tag_name: input.tag,
   target_commitish: input.commit,
   upload_url:
-    "https://uploads.github.com/repos/mirror-org/shenzhen-3D/releases/12/assets{?name,label}",
+    "https://uploads.github.com/repos/fixture-alternate/shenzhen-3D/releases/12/assets{?name,label}",
 };
 const matching = {
   id: 20,
@@ -145,8 +173,8 @@ for (const tag of ["preview-0.1.5", "preview-0.1.6"])
   test(`${tag} support preserves exact draft, source and repository guards`, () => {
     const next = { ...input, tag };
     for (const repo of [
-      "mirror-org/shenzhen-3D",
-      "casimir-engineering/shenzhen-3D",
+      "fixture-alternate/shenzhen-3D",
+      "fixture-source/shenzhen-3D",
     ])
       assert.equal(validateDirectInput({ ...next, repo }).tag, tag);
     const nextRelease = { ...release, tag_name: next.tag };
@@ -188,8 +216,8 @@ test("credentials are restricted to a validated upload endpoint and config", () 
   assert.match(config, /header = "Expect:"/);
   assert.throws(() => curlConfig(release, input, "fake\nheader"));
   for (const upload_url of [
-    "http://uploads.github.com/repos/mirror-org/shenzhen-3D/releases/12/assets",
-    "https://uploads.github.com.evil.test/repos/mirror-org/shenzhen-3D/releases/12/assets",
+    "http://uploads.github.com/repos/fixture-alternate/shenzhen-3D/releases/12/assets",
+    "https://uploads.github.com.evil.test/repos/fixture-alternate/shenzhen-3D/releases/12/assets",
     "https://uploads.github.com/repos/other/repo/releases/12/assets",
   ])
     assert.throws(() =>
@@ -280,8 +308,8 @@ async function fixture(runTest, options = {}) {
 for (const metadata of [
   undefined,
   {},
-  { releaseOwner: "casimir-engineering", sourceCommit: input.commit },
-  { releaseOwner: "mirror-org", sourceCommit: "c".repeat(40) },
+  { releaseOwner: "fixture-source", sourceCommit: input.commit },
+  { releaseOwner: "fixture-alternate", sourceCommit: "c".repeat(40) },
 ])
   test(`0.1.6 invalid provenance blocks GitHub access (${metadata === undefined ? "missing" : JSON.stringify(metadata)})`, async () => {
     await fixture(

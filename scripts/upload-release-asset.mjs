@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// node scripts/upload-release-asset.mjs --repo=mirror-org/shenzhen-3D \
+// node scripts/upload-release-asset.mjs --repo=OWNER/shenzhen-3D \
 //   --tag=preview-0.1.3 --file=artifacts/releases-0.1.3/Shenzhen-3D-0.1.3-Apple-Silicon.dmg
 // Auth stays in gh's existing credential store/environment. No tokens are read or logged.
 // Defaults to 8 MiB parts; override with --chunk-mib=1..24 when appropriate.
@@ -10,17 +10,12 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
-
-const REPOSITORIES = new Set([
-  "casimir-engineering/shenzhen-3D",
-  "mirror-org/shenzhen-3D",
-]);
+import { assertAuthorizedRepository } from "./upload-release-asset-config.mjs";
 const MAX_PARTS = 64;
 const MAX_PART_BYTES = 24 * 1024 * 1024;
 const WORKFLOW = "assemble-release-asset.yml";
 export function validateInputs({ repo, tag, name, sha256, partCount, size }) {
-  if (!REPOSITORIES.has(repo))
-    throw Error("Repository is not authorized for this uploader.");
+  assertAuthorizedRepository(repo);
   if (
     typeof tag !== "string" ||
     !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(tag)
