@@ -2347,6 +2347,12 @@ function App() {
               </dd>
               <dt>Zoom</dt>
               <dd>Mouse wheel · pinch</dd>
+              {window.shenzhenScroll?.subscribeRotate && (
+                <>
+                  <dt>Rotate view</dt>
+                  <dd>Two-finger trackpad twist</dd>
+                </>
+              )}
               <dt>Fit model</dt>
               <dd>
                 <kbd>F</kbd>

@@ -16,6 +16,8 @@ Zoom stays centered in the view. Panning moves the view center, and subsequent o
 
 Touchscreens use one finger to orbit and two fingers to pan and pinch. In 2D drawings, orbit gestures pan. Previous input-device, navigation-preset, and reverse-wheel preferences are ignored; no device selection is required.
 
+The Chromium macOS app also supports two-finger trackpad twist: it rolls the view around the current sight line. The model, measurement coordinates, view center and zoom stay unchanged. Twist applies only over the canvas; view presets reset the orientation. This uses native AppKit rotation events and is not available through the browser fallback or lightweight Tauri shell. Android and iOS retain one-finger orbit and two-finger pan/pinch.
+
 The macOS desktop app distinguishes trackpad gestures from mouse wheels using native scroll-event phases when its AppKit input bridge is available. The browser version cannot access those phases. It uses wheel tick, precision, horizontal-scroll, and momentum information as a fallback; some smooth mouse wheels and vertical trackpad swipes produce indistinguishable browser events and can be misclassified. Pinch still zooms, and left/middle drag always pans.
 
 The fixed mapping and browser fallback passed 1,262 assertions in headed Chromium using the Apple M5 Max Metal renderer, including button/modifier combinations, centered navigation, touch gestures, and measurement overlays. This browser run does not validate native AppKit event delivery; that bridge is tested separately.

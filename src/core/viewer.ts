@@ -1,4 +1,4 @@
-import "./native-scroll";
+import type { NativeRotation } from "./native-scroll";
 import * as T from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { MeshBVH, acceleratedRaycast } from "three-mesh-bvh";
@@ -134,6 +134,9 @@ export class Viewer {
   private lastHoverKey = "";
   private frame = 0;
   private disposed = false;
+  private unsubscribeRotation?: () => void;
+  private rotationFrame = 0;
+  private pendingRotation = 0;
   private label: HTMLDivElement;
   private axisLabels: HTMLDivElement[] = [];
   private axisMidpoints: (T.Vector3 | undefined)[] = [];
@@ -253,6 +256,9 @@ export class Viewer {
     });
     canvas.addEventListener("webglcontextlost", this.contextLost);
     canvas.addEventListener("webglcontextrestored", this.contextRestored);
+    this.unsubscribeRotation = window.shenzhenScroll?.subscribeRotate?.(
+      this.nativeRotation,
+    );
     this.resize();
   }
   private contextLost = (e: Event) => {
@@ -1107,7 +1113,7 @@ export class Viewer {
     this.camera.position
       .copy(this.controls.target)
       .add(new T.Vector3(...dirs[view]).normalize().multiplyScalar(distance));
-    this.controls.update();
+    this.rebaseControls();
     this.invalidate();
   }
   setProjection(orthographic: boolean) {
@@ -1813,6 +1819,64 @@ export class Viewer {
     this.invalidate();
   };
   private contextMenu = (event: Event) => event.preventDefault();
+  private nativeRotation = (event: NativeRotation) => {
+    if (
+      this.disposed ||
+      this.activePointers.size ||
+      !Number.isFinite(event.degrees) ||
+      Math.abs(event.degrees) > 180 ||
+      !Number.isFinite(event.clientX) ||
+      !Number.isFinite(event.clientY) ||
+      document.elementFromPoint(event.clientX, event.clientY) !==
+        this.renderer.domElement
+    )
+      return;
+    this.pendingRotation += event.degrees;
+    if (this.rotationFrame) return;
+    this.rotationFrame = requestAnimationFrame(() => {
+      this.rotationFrame = 0;
+      const degrees = this.pendingRotation;
+      this.pendingRotation = 0;
+      if (!this.activePointers.size) this.rollView(degrees);
+    });
+  };
+  /** Rotate the view around its sight line without changing model coordinates. */
+  rollView(degrees: number) {
+    if (this.disposed || !Number.isFinite(degrees) || !degrees) return;
+    const position = this.camera.position.clone();
+    const target = this.controls.target.clone();
+    const direction = target.clone().sub(position).normalize();
+    if (!direction.lengthSq()) return;
+    // AppKit reports counterclockwise object rotation. Rotate the camera up
+    // around its forward axis so the image follows the fingers.
+    this.camera.up
+      .set(0, 1, 0)
+      .applyQuaternion(this.camera.quaternion)
+      .applyAxisAngle(direction, T.MathUtils.degToRad(degrees))
+      .normalize();
+    this.rebaseControls();
+    this.cameraChanged();
+  }
+  private rebaseControls() {
+    const position = this.camera.position.clone();
+    const target = this.controls.target.clone();
+    // OrbitControls caches its up-axis basis at construction. Rebase through
+    // its public constructor, once per display frame; geometry stays intact.
+    const old = this.controls;
+    const limits = {
+      minDistance: old.minDistance,
+      maxDistance: old.maxDistance,
+      minZoom: old.minZoom,
+      maxZoom: old.maxZoom,
+      enabled: old.enabled,
+    };
+    old.dispose();
+    this.controls = this.makeControls();
+    Object.assign(this.controls, limits);
+    this.camera.position.copy(position);
+    this.controls.target.copy(target);
+    this.controls.update();
+  }
   private wheel = (event: WheelEvent) => {
     if (
       this.wheelGestures.classify(
@@ -1911,6 +1975,9 @@ export class Viewer {
   }
   dispose() {
     this.disposed = true;
+    this.unsubscribeRotation?.();
+    cancelAnimationFrame(this.rotationFrame);
+    this.pendingRotation = 0;
     cancelAnimationFrame(this.frame);
     window.clearTimeout(this.navigationTimer);
     this.resizeObserver.disconnect();
