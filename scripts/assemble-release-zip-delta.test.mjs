@@ -12,6 +12,7 @@ import {
   finalAssetPlan,
   assembleDelta,
   verifyFrozenTag,
+  findHeldDraft,
 } from "./assemble-release-zip-delta.mjs";
 const hash = (b) => createHash("sha256").update(b).digest("hex"),
   repo = "fixture-owner/shenzhen-3D",
@@ -120,11 +121,9 @@ async function fixture(t, changes = {}) {
     }
     if (endpoint.endsWith("/releases/tags/preview-0.1.4"))
       return JSON.stringify(baseRelease);
-    if (
-      endpoint.endsWith("/releases/tags/preview-0.1.6") ||
-      endpoint.endsWith("/releases/1")
-    )
-      return JSON.stringify(release);
+    if (endpoint.endsWith("/releases?per_page=100&page=1"))
+      return JSON.stringify([release]);
+    if (endpoint.endsWith("/releases/1")) return JSON.stringify(release);
     if (endpoint === `repos/${repo}/`) return JSON.stringify({ private: true });
     if (endpoint.includes("/git/matching-refs/tags/"))
       return JSON.stringify(changes.refs || []);
@@ -284,4 +283,49 @@ test("completed rerun succeeds after its patch has already been deleted", async 
       (a) => a[0] !== "zstd" && a[1] !== "release" && !a.includes("DELETE"),
     ),
   );
+});
+
+test("held draft lookup uses bounded lists instead of the published-tag endpoint", async (t) => {
+  const f = await fixture(t),
+    calls = [];
+  const draft = await findHeldDraft(async (endpoint) => {
+    calls.push(endpoint);
+    return endpoint.endsWith("page=1")
+      ? Array.from({ length: 100 }, (_, i) => ({ tag_name: `unrelated-${i}` }))
+      : [f.release];
+  }, f.input);
+  assert.equal(draft.id, f.release.id);
+  assert.equal(calls.length, 2);
+  assert.ok(
+    calls.every((endpoint) =>
+      endpoint.startsWith("releases?per_page=100&page="),
+    ),
+  );
+  await assembleDelta(f.input, { run: f.run });
+  assert.ok(
+    f.calls.every(
+      (call) =>
+        !call.some((arg) => arg.includes?.("releases/tags/preview-0.1.6")),
+    ),
+  );
+});
+test("held draft lookup refuses duplicate matches, missing matches and unbounded pages", async (t) => {
+  const f = await fixture(t);
+  await assert.rejects(
+    findHeldDraft(async () => [f.release, { ...f.release, id: 99 }], f.input),
+    /exactly one/,
+  );
+  await assert.rejects(
+    findHeldDraft(async () => [], f.input),
+    /not found/,
+  );
+  let calls = 0;
+  await assert.rejects(
+    findHeldDraft(async () => {
+      calls++;
+      return Array.from({ length: 100 }, () => ({ tag_name: "other" }));
+    }, f.input),
+    /pagination exceeds/,
+  );
+  assert.equal(calls, 5);
 });

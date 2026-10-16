@@ -47,6 +47,25 @@ export function verifyDeltaRelease(release, input, base = false) {
       "Expected published base and held draft at exact source commit",
     );
 }
+export async function findHeldDraft(api, input) {
+  let matched;
+  for (let page = 1; page <= 5; page++) {
+    const releases = await api(`releases?per_page=100&page=${page}`);
+    if (!Array.isArray(releases) || releases.length > 100)
+      throw Error("Invalid release list response");
+    for (const release of releases) {
+      if (release.tag_name !== input.tag) continue;
+      if (matched) throw Error("Release tag must match exactly one held draft");
+      matched = release;
+    }
+    if (releases.length < 100) {
+      if (!matched) throw Error("Expected held draft was not found");
+      verifyDeltaRelease(matched, input);
+      return matched;
+    }
+  }
+  throw Error("Release pagination exceeds bounded verification");
+}
 export async function verifyFrozenTag(api, input) {
   const refs = await api(`git/matching-refs/tags/${input.tag}`);
   if (!Array.isArray(refs)) throw Error("Invalid tag reference response");
@@ -166,7 +185,7 @@ export async function assembleDelta(raw, dependencies = {}) {
     );
   if ((await api("")).private !== true)
     throw Error("Expected a private repository");
-  const release = await api(`releases/tags/${TAG}`);
+  const release = await findHeldDraft(api, input);
   verifyDeltaRelease(release, input);
   await verifyFrozenTag(api, input);
   const find = (release, name) => {
