@@ -65,21 +65,15 @@ function command(selector) {
 let updateManager;
 let updateTimer;
 let recentFileStore;
-const pendingOpenFiles = [];
-let fileTargetId;
-function fileTarget(preferFocused = false) {
+const pendingOpenFiles = require("./file-open-queue.cjs").createFileOpenQueue();
+let primaryFileWindowId;
+function fileTarget() {
   const windows = BrowserWindow.getAllWindows().filter(
     (window) => !window.isDestroyed() && trusted(window.webContents.getURL()),
   );
-  if (preferFocused) {
-    const focused = windows.find(
-      (window) => window === BrowserWindow.getFocusedWindow(),
-    );
-    if (focused) return focused;
-  }
   return (
-    windows.find((window) => window.id === fileTargetId) ||
     windows.find((window) => window === BrowserWindow.getFocusedWindow()) ||
+    windows.find((window) => window.webContents.id === primaryFileWindowId) ||
     windows[0]
   );
 }
@@ -116,11 +110,9 @@ function queueOpenFiles(paths) {
     .map((p) => path.resolve(p))
     .slice(0, 256);
   if (!selected.length) return;
-  pendingOpenFiles.push(selected);
-  if (pendingOpenFiles.length > 16) pendingOpenFiles.shift();
-  const window = fileTarget(true);
+  const window = fileTarget();
+  pendingOpenFiles.push(selected, window?.webContents.id);
   if (window) {
-    fileTargetId = window.id;
     if (window.isMinimized()) window.restore();
     window.show();
     window.focus();
@@ -151,15 +143,14 @@ ipcMain.handle("shenzhen-open-files", (event) => {
   )
     throw Error("File request is not allowed");
   const result = openFilesQueue.then(async () => {
-    const window = fileTarget();
-    if (!window || window.webContents !== event.sender) return [];
-    fileTargetId = window.id;
     recentFileStore ||= require("./recent-files.cjs").createRecentFileStore(
       app.getPath("userData"),
     );
     const batches = [];
-    while (pendingOpenFiles.length) {
-      const paths = pendingOpenFiles.shift();
+    for (const paths of pendingOpenFiles.take(
+      event.sender.id,
+      primaryFileWindowId,
+    )) {
       const name = path.basename(paths[0]),
         format = path.extname(name).slice(1).toLowerCase();
       const grant = await recentFileStore.remember(paths, name, format);
@@ -297,6 +288,12 @@ function createWindow(url = entry) {
       spellcheck: false,
     },
   });
+  if (
+    !BrowserWindow.getAllWindows().some(
+      (candidate) => candidate.webContents.id === primaryFileWindowId,
+    )
+  )
+    primaryFileWindowId = window.webContents.id;
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, url) => {
     if (!trusted(url)) event.preventDefault();
