@@ -40,7 +40,12 @@ after(async () => {
   await fs.rm(operatorDirectory, { recursive: true, force: true });
 });
 
-for (const tag of ["preview-0.1.6", "preview-0.1.7", "preview-0.1.8"])
+for (const tag of [
+  "preview-0.1.6",
+  "preview-0.1.7",
+  "preview-0.1.8",
+  "preview-0.1.9",
+])
   test(`${tag} binary, feed, blockmap and provenance require matching adjacent owner/source metadata`, async () => {
     const directory = await fs.mkdtemp(
       path.join(os.tmpdir(), "variant-metadata-test-"),
@@ -104,7 +109,12 @@ test("older release schemas and current preview evidence do not require owner me
       tag,
       filename: "/missing-folder/app.dmg",
     });
-  for (const tag of ["preview-0.1.6", "preview-0.1.7", "preview-0.1.8"])
+  for (const tag of [
+    "preview-0.1.6",
+    "preview-0.1.7",
+    "preview-0.1.8",
+    "preview-0.1.9",
+  ])
     await verifyArtifactMetadata({
       ...input,
       tag,
@@ -158,11 +168,12 @@ test("delivery is limited to authorized repositories and the exact preview draft
   for (const patch of [
     { repo: "other/repo" },
     { tag: "preview-0.1.3" },
-    { tag: "preview-0.1.9" },
+    { tag: "preview-0.1.10" },
     { tag: "v0.1.5" },
     { tag: "v0.1.6" },
     { tag: "v0.1.7" },
     { tag: "v0.1.8" },
+    { tag: "v0.1.9" },
     { name: "../app.dmg" },
     { sha256: "invalid" },
     { commit: "main" },
@@ -178,6 +189,7 @@ for (const tag of [
   "preview-0.1.6",
   "preview-0.1.7",
   "preview-0.1.8",
+  "preview-0.1.9",
 ])
   test(`${tag} support preserves exact draft, source and repository guards`, () => {
     const next = { ...input, tag };
@@ -314,7 +326,12 @@ async function fixture(runTest, options = {}) {
     await fs.rm(directory, { recursive: true, force: true });
   }
 }
-for (const tag of ["preview-0.1.6", "preview-0.1.7", "preview-0.1.8"])
+for (const tag of [
+  "preview-0.1.6",
+  "preview-0.1.7",
+  "preview-0.1.8",
+  "preview-0.1.9",
+])
   for (const metadata of [
     undefined,
     {},

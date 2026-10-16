@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Direct fallback when release-assembly Actions are unavailable.
 // node scripts/upload-release-asset-direct.mjs --repo=OWNER/shenzhen-3D \
-//   --tag=preview-0.1.8 --commit=SOURCE_SHA --file=FILE --sha256=FILE_SHA \
+//   --tag=preview-0.1.9 --commit=SOURCE_SHA --file=FILE --sha256=FILE_SHA \
 //   [--replace-sha256=OBSOLETE_SHA] [--cleanup-part-count=17]
 // Existing gh auth is sent only through curl's private stdin configuration.
 // Owner-isolated previews require adjacent build-info.json matching releaseOwner/sourceCommit.
@@ -17,6 +17,7 @@ const OWNER_METADATA_TAGS = new Set([
   "preview-0.1.6",
   "preview-0.1.7",
   "preview-0.1.8",
+  "preview-0.1.9",
 ]);
 const TAGS = new Set([
   "preview-0.1.4",
