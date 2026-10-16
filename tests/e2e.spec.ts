@@ -10,7 +10,7 @@ test.beforeEach(async ({page}) => {
   page.on('console', message => {if (message.type() === 'error') errors.push(message.text());});
   await page.goto('/');
   await expect(page.locator('header').getByRole('button', {name: /^Open file/})).toBeEnabled();
-  await expect(page.getByRole('button', {name: 'Explore a sample model', exact: true})).toBeEnabled();
+  await expect(page.getByRole('button', {name: 'Sample model', exact: true})).toBeEnabled();
   await expect(page.locator('.viewport-canvas canvas')).toHaveCount(0);
   (page as ErrorAwarePage).applicationErrors = errors;
 });
@@ -27,7 +27,7 @@ test('welcome Open works before graphics initialize and an empty chooser leaves 
   await page.locator('header').getByRole('button', {name: /^Open file/}).click();
   await (await chooser).setFiles([]);
   await expect(page.locator('.viewport-canvas canvas')).toHaveCount(0);
-  await expect(page.getByRole('button', {name: 'Explore a sample model', exact: true})).toBeEnabled();
+  await expect(page.getByRole('button', {name: 'Sample model', exact: true})).toBeEnabled();
   await expect(page.getByRole('alert')).toHaveCount(0);
   const startupResources = await page.evaluate(() => performance.getEntriesByType('resource').map(entry => new URL(entry.name).pathname));
   expect(startupResources.filter(name => /(?:model-runtime|three\.core|project-file|ray-tracing)[.-]/.test(name)), 'Welcome does not fetch geometry, ZIP or ray-tracing modules').toEqual([]);
@@ -75,13 +75,13 @@ test('failed lazy runtime fetch leaves Open usable and a second sample request r
   await page.reload();
   (page as ErrorAwarePage).expectedApplicationErrors = [/Failed to load resource: net::ERR_FAILED/];
   await page.route(/\/(?:assets\/model-runtime-[^/]+\.js|src\/core\/model-runtime\.ts)(?:\?|$)/, route => route.abort('failed'), {times: 1});
-  await page.getByRole('button', {name: 'Explore a sample model', exact: true}).click();
+  await page.getByRole('button', {name: 'Sample model', exact: true}).click();
   await expect(page.getByRole('alert')).toContainText(/Failed to fetch|module script|dynamically imported/i);
   await expect(page.locator('.viewport-canvas canvas')).toHaveCount(0);
   await expect(page.locator('header').getByRole('button', {name: /^Open file/})).toBeEnabled();
   // A long download error overlaps the sample action on narrow screens.
   await page.getByRole('button', {name: 'Dismiss error', exact: true}).click();
-  await page.getByRole('button', {name: 'Explore a sample model', exact: true}).click();
+  await page.getByRole('button', {name: 'Sample model', exact: true}).click();
   await expect(page.locator('.model-badge')).toContainText('4 parts');
   await expect(page.locator('.viewport-canvas canvas')).toHaveCount(1);
   await expect(page.getByRole('alert')).toHaveCount(0);
@@ -98,7 +98,7 @@ test('graphics initialization failure stops the spinner and a later import retri
     } as typeof original;
   });
   (page as ErrorAwarePage).expectedApplicationErrors = [/THREE\.WebGLRenderer: Error creating WebGL context/];
-  await page.getByRole('button', {name: 'Explore a sample model', exact: true}).click();
+  await page.getByRole('button', {name: 'Sample model', exact: true}).click();
   await expect(page.getByRole('alert')).toContainText(/WebGL context/);
   await expect(page.getByRole('heading', {name: 'Starting 3D viewer…', exact: true})).toHaveCount(0);
   await expect(page.locator('.viewport-canvas canvas')).toHaveCount(0);
@@ -116,6 +116,7 @@ async function closeInspector(page: Page) {
 }
 
 async function showInspector(page: Page) {
+  await expect(page.locator('.model-badge')).toBeVisible();
   const open = page.getByRole('button', {name: 'Show measurements', exact: true});
   if (await open.isVisible()) await open.click();
   await expect(page.locator('.inspector')).toBeVisible();
@@ -244,12 +245,12 @@ test('STEP import, real surface picks, unit overrides, saved JSON/CSV and exact 
   const centerDistance = Number((await result.innerText()).replaceAll(',', ''));
   expect(Number.isFinite(centerDistance)).toBe(true);
   expect(centerDistance).toBeGreaterThan(0);
-  await page.getByRole('button', {name: 'Start a new measurement', exact: false}).click();
+  await page.getByRole('button', {name: 'Clear measurement', exact: false}).click();
   await expect(page.locator('.point-row.filled')).toHaveCount(0);
 });
 
 test('sample assembly visibility, isolate, point angle, and saved deletion', async ({page, isMobile}) => {
-  await page.getByRole('button', {name: 'Explore a sample model', exact: true}).click();
+  await page.getByRole('button', {name: 'Sample model', exact: true}).click();
   await expect(page.locator('.model-badge')).toContainText('4 parts');
   const openAssembly = page.getByRole('button', {name: 'Show assembly', exact: true});
   if (await openAssembly.isVisible()) await openAssembly.click();
@@ -281,12 +282,12 @@ test('sample assembly visibility, isolate, point angle, and saved deletion', asy
   await page.getByRole('button', {name: 'Saved 1', exact: true}).click();
   await page.getByRole('button', {name: 'Delete measurement', exact: true}).click();
   await expect(page.locator('.saved-measurement')).toHaveCount(0);
-  await expect(page.getByText('Keep the useful numbers.', {exact: true})).toBeVisible();
+  await expect(page.getByText('No saved measurements', {exact: true})).toBeVisible();
 });
 
 test('desktop section, orthographic projection, display tools and PNG export', async ({page, isMobile}) => {
   test.skip(isMobile, 'These controls are hidden by the mobile responsive toolbar.');
-  await page.getByRole('button', {name: 'Explore a sample model', exact: true}).click();
+  await page.getByRole('button', {name: 'Sample model', exact: true}).click();
   await expect(page.locator('.model-badge')).toContainText('4 parts');
   await page.getByRole('button', {name: 'Perspective', exact: true}).click();
   await expect(page.getByRole('button', {name: 'Orthographic', exact: true})).toBeVisible();
@@ -350,7 +351,7 @@ test('desktop section, orthographic projection, display tools and PNG export', a
 
 test('mobile view settings expose section, projection, opacity and assembly explode', async ({page, isMobile}) => {
   test.skip(!isMobile, 'Mobile toolbar uses the settings dialog for view controls.');
-  await page.getByRole('button', {name: 'Explore a sample model', exact: true}).click();
+  await page.getByRole('button', {name: 'Sample model', exact: true}).click();
   await page.getByRole('button', {name: 'Settings', exact: true}).click();
   const settings = page.getByRole('dialog');
   await settings.getByRole('button', {name: 'Orthographic', exact: true}).click();
@@ -369,7 +370,8 @@ test('mobile view settings expose section, projection, opacity and assembly expl
 });
 
 test('mesh circular cap reports approximate diameter and coplanar area', async ({page, isMobile}) => {
-  await page.getByRole('button', {name: 'Explore a sample model', exact: true}).click();
+  await page.getByRole('button', {name: 'Sample model', exact: true}).click();
+  await expect(page.locator('.model-badge')).toBeVisible();
   const openAssembly = page.getByRole('button', {name: 'Show assembly', exact: true});
   if (await openAssembly.isVisible()) await openAssembly.click();
   await page.getByLabel('Search assembly', {exact: true}).fill('Fastener');
@@ -408,7 +410,7 @@ test('production app reloads and imports STEP after the network goes offline', a
   await context.setOffline(true);
   try {
     await page.reload({waitUntil: 'domcontentloaded'});
-    await expect(page.getByRole('button', {name: 'Explore a sample model', exact: true})).toBeVisible();
+    await expect(page.getByRole('button', {name: 'Sample model', exact: true})).toBeVisible();
     await page.locator('input[type=file]').setInputFiles(fixture);
     await expect(page.locator('.model-badge')).toContainText('CAD model', {timeout: 120_000});
     await expect(page.locator('.model-badge')).toContainText(' parts');
@@ -419,7 +421,7 @@ test('production app reloads and imports STEP after the network goes offline', a
 });
 
 test('portable review projects preserve point, feature and part notes with editable anchors', async ({page, isMobile}) => {
-  await page.getByRole('button', {name: 'Explore a sample model'}).click();
+  await page.getByRole('button', {name: 'Sample model'}).click();
   const locations = await geometryLocations(page);
   for (const [index, scope, text] of [
     [0, 'point', 'Check clearance at this point.'],
@@ -474,7 +476,7 @@ test('portable review projects preserve point, feature and part notes with edita
 });
 
 test('render styles and lighting are available in desktop and touch settings', async ({page}) => {
-  await page.getByRole('button', {name: 'Explore a sample model'}).click();
+  await page.getByRole('button', {name: 'Sample model'}).click();
   await page.getByRole('button', {name: 'Settings', exact: true}).click();
   await page.getByLabel('Settings render style').selectOption('hidden-line');
   await page.getByLabel('Light direction', {exact: true}).fill('120');
@@ -531,7 +533,7 @@ test('CAD review bundle carries the original STEP and exact saved measurements',
 test('ray tracing reports unsupported devices and keeps the normal viewer usable', async ({page}) => {
   await page.addInitScript(() => Object.defineProperty(navigator, 'gpu', {configurable: true, value: undefined}));
   await page.reload();
-  await page.getByRole('button', {name: 'Explore a sample model'}).click();
+  await page.getByRole('button', {name: 'Sample model'}).click();
   await page.getByRole('button', {name: 'Settings', exact: true}).click();
   await page.getByLabel('GPU ray tracing', {exact: true}).check();
   await expect(page.locator('.raytrace-controls')).toContainText('requires WebGPU', {timeout: 20_000});
@@ -545,7 +547,7 @@ test('ray tracing reports unsupported devices and keeps the normal viewer usable
 test('recent files return after closing a document and reopen without retaining a renderer', async ({page}) => {
   const recent = page.getByRole('region', {name:'Recent files'});
   await expect(recent).toBeVisible();
-  await expect(recent).toContainText('Files you open will appear here.');
+  await expect(recent.getByRole('button')).toHaveCount(0);
   const triangle = Buffer.from('solid recent\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid recent\n');
   await page.locator('input[type=file]').setInputFiles({name:'recent-part.stl',mimeType:'model/stl',buffer:triangle});
   await expect(page.locator('.model-badge')).toContainText('1 part');

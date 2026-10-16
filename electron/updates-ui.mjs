@@ -116,22 +116,22 @@ try {
     page.getByRole("dialog", { name: "Updates", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByLabel("Or use a read-only access token"),
+    page.getByLabel("Access token"),
   ).toBeVisible();
   await page
-    .getByLabel("Or use a read-only access token")
+    .getByLabel("Access token")
     .fill("fixture-token");
-  await page.getByRole("button", { name: "Connect securely" }).click();
-  await page.getByText("GitHub access", { exact: false }).first().click();
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator(".updates-connection > summary").click();
   await expect(
-    page.getByText("Access is stored securely on this Mac."),
+    page.getByRole("button", { name: "Disconnect", exact: true }),
   ).toBeVisible();
   await page.getByLabel("Release repository").selectOption("mirror-org");
   await expect(page.getByLabel("Release repository")).toHaveValue(
     "mirror-org",
   );
-  await page.getByLabel("Check automatically").click();
-  await expect(page.getByLabel("Check automatically")).not.toBeChecked();
+  await page.getByLabel("Check daily").click();
+  await expect(page.getByLabel("Check daily")).not.toBeChecked();
   await page
     .getByRole("button", { name: "Check for updates", exact: true })
     .click();

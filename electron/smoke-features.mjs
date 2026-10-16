@@ -110,7 +110,7 @@ export async function checkRayTracing(application, page, directory) {
   // Use the small built-in sample so this remains a correctness smoke, not a
   // large-scene GPU performance benchmark.
   await page.reload();
-  await page.getByRole('button', { name: 'Explore a sample model', exact: true }).click();
+  await page.getByRole('button', { name: 'Sample model', exact: true }).click();
   await expect(page.locator('.model-badge')).toContainText('4 parts');
   await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(900, 700));
   await page.getByRole('button', { name: 'Settings', exact: true }).click();

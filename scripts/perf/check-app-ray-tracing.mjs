@@ -14,7 +14,7 @@ try {
     return adapter ? {vendor: adapter.info.vendor, architecture: adapter.info.architecture, fallback: adapter.info.isFallbackAdapter} : null;
   });
   if (!hardware || hardware.fallback || /software|swiftshader/i.test(JSON.stringify(hardware))) throw new Error('Hardware WebGPU required');
-  await page.getByRole('button', {name: 'Explore a sample model', exact: true}).click();
+  await page.getByRole('button', {name: 'Sample model', exact: true}).click();
   await expect(page.locator('.model-badge')).toContainText('4 parts');
   await page.getByTitle('Top · 2', {exact: true}).click();
   await page.getByRole('button', {name: 'Fit model', exact: true}).click();

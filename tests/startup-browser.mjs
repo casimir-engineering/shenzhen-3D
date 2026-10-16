@@ -138,7 +138,7 @@ const inject = () => {
     (event) => {
       const button = event.target.closest?.("button");
       if (
-        button?.textContent.includes("Explore a sample model") &&
+        button?.textContent.toLowerCase().includes("sample model") &&
         mark.sampleIntentMs === null
       )
         mark.sampleIntentMs = performance.now();
@@ -149,14 +149,14 @@ const inject = () => {
     "click",
     (event) => {
       const button = event.target.closest?.("button");
-      if (button?.textContent.includes("Explore a sample model"))
+      if (button?.textContent.toLowerCase().includes("sample model"))
         mark.sampleClickMs = performance.now();
     },
     true,
   );
   const observer = new MutationObserver(() => {
     const button = [...document.querySelectorAll("button")].find((b) =>
-      b.textContent.includes("Explore a sample model"),
+      b.textContent.toLowerCase().includes("sample model"),
     );
     if (
       mark.shellDomReadyMs === null &&
@@ -228,7 +228,7 @@ async function timing(page) {
 }
 async function sample(page) {
   await page
-    .getByRole("button", { name: "Explore a sample model", exact: true })
+    .getByRole("button", { name: /sample model/i })
     .click();
   await page.waitForFunction(
     () => typeof window.__startup.modelPaintedMs === "number",

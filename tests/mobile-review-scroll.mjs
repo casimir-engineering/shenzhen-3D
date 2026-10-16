@@ -10,8 +10,9 @@ try {
   const page = await browser.newPage({ ...devices["iPhone 13"] });
   await page.goto(process.env.E2E_BASE_URL || "http://127.0.0.1:1420");
   await page
-    .getByRole("button", { name: "Explore a sample model", exact: true })
+    .getByRole("button", { name: "Sample model", exact: true })
     .click();
+  await expect(page.locator(".model-badge")).toBeVisible();
   const show = page.getByRole("button", {
     name: "Show measurements",
     exact: true,
