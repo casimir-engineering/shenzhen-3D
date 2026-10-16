@@ -11,7 +11,7 @@ export interface UpdateState {
     | "error"
     | "needs-auth";
   automatic: boolean;
-  repository: "casimir-engineering" | "mirror-org";
+  repository: string;
   prereleases: boolean;
   connected: boolean;
   availableVersion?: string;

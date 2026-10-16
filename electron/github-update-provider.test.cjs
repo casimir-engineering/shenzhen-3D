@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const { createClient } = require("electron-updater/out/providerFactory");
 const { PrivateReleaseProvider } = require("./github-update-provider.cjs");
 
-const OWNER = "casimir-engineering",
+const OWNER = "fixture-primary",
   REPO = "shenzhen-3D",
   TOKEN = "fixture-connected-token";
 const asset = (name, id = 1) => ({
@@ -155,7 +155,10 @@ test("asset authentication is confined to this private repository's GitHub API",
   const selected = await provider.getLatestVersionInfo({});
   assert.equal(selected.tag_name, "v0.1.6");
   assert.equal(selected.assets.length, 2);
-  assert.throws(() => fixture([], true, { owner: "other" }), /not configured/);
+  assert.throws(
+    () => fixture([], true, { owner: "bad/owner" }),
+    /not configured/,
+  );
 });
 test("selection has a bounded 100-release window and fails clearly without eligible candidates", async () => {
   const releases = Array.from({ length: 100 }, () => release("v0.1.6"));

@@ -1,27 +1,22 @@
-const RELEASE_OWNERS = Object.freeze(["casimir-engineering", "mirror-org"]);
+function isReleaseOwner(owner) {
+  return (
+    typeof owner === "string" &&
+    /^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$/.test(owner)
+  );
+}
 function assertReleaseOwner(owner) {
-  if (!RELEASE_OWNERS.includes(owner)) throw Error("Invalid release owner");
+  if (!isReleaseOwner(owner)) throw Error("Invalid release owner");
   return owner;
 }
 function resolveReleaseOwner(metadata, packaged) {
-  return packaged
-    ? assertReleaseOwner(metadata?.releaseOwner)
-    : "casimir-engineering";
+  if (!packaged && metadata?.releaseOwner === undefined) return null;
+  return assertReleaseOwner(metadata?.releaseOwner);
 }
 function resolveArtifactReleaseOwner(metadata, provenance) {
-  if (require("semver").gte(metadata.version, "0.1.6")) {
-    assertReleaseOwner(metadata.releaseOwner);
-    assertReleaseOwner(provenance.releaseOwner);
-  }
-  if (
-    (metadata.releaseOwner !== undefined ||
-      provenance.releaseOwner !== undefined) &&
-    metadata.releaseOwner !== provenance.releaseOwner
-  )
+  const owner = assertReleaseOwner(metadata.releaseOwner);
+  if (assertReleaseOwner(provenance.releaseOwner) !== owner)
     throw Error("Staged release owner does not match provenance");
-  return assertReleaseOwner(
-    provenance.releaseOwner ?? metadata.releaseOwner ?? "casimir-engineering",
-  );
+  return owner;
 }
 function validatePackagedFeed(feed, owner) {
   assertReleaseOwner(owner);
@@ -40,7 +35,7 @@ function validatePackagedFeed(feed, owner) {
   return feed;
 }
 module.exports = {
-  RELEASE_OWNERS,
+  isReleaseOwner,
   assertReleaseOwner,
   resolveReleaseOwner,
   resolveArtifactReleaseOwner,

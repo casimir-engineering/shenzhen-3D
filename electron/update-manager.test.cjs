@@ -72,10 +72,10 @@ async function fixture(t, changes = {}) {
     app,
     safeStorage: storage,
     platform: "darwin",
-    releaseOwner: "casimir-engineering",
+    releaseOwner: "fixture-primary",
     readPackagedFeed: async () => ({
       provider: "github",
-      owner: changes.releaseOwner ?? "casimir-engineering",
+      owner: changes.releaseOwner ?? "fixture-primary",
       repo: "shenzhen-3D",
       private: true,
       channel: "latest",
@@ -151,15 +151,18 @@ test("missing authentication never falls back to a public GitHub feed", async (t
 });
 
 test("verified private access is encrypted, atomically persisted and restored", async (t) => {
-  const f = await fixture(t, { releaseOwner: "mirror-org" });
-  await f.manager.configure({ automatic: false, repository: "mirror-org" });
+  const f = await fixture(t, { releaseOwner: "fixture-secondary" });
+  await f.manager.configure({
+    automatic: false,
+    repository: "fixture-secondary",
+  });
   const state = await f.manager.connect(TEST_TOKEN);
   assert.equal(state.connected, true);
   assert.equal(state.automatic, false);
   assert.equal(state.prereleases, true);
   assert.equal(
     f.calls.auth[0].url,
-    "https://api.github.com/repos/mirror-org/shenzhen-3D/releases?per_page=1",
+    "https://api.github.com/repos/fixture-secondary/shenzhen-3D/releases?per_page=1",
   );
   assert.equal(f.calls.auth[0].options.redirect, "error");
   assert.equal(
@@ -179,7 +182,7 @@ test("verified private access is encrypted, atomically persisted and restored", 
   t.after(() => restored.dispose());
   await restored.configure({});
   assert.equal(restored.getState().connected, true);
-  assert.equal(restored.getState().repository, "mirror-org");
+  assert.equal(restored.getState().repository, "fixture-secondary");
   assert.equal(JSON.stringify(f.states).includes(TEST_TOKEN), false);
 });
 
@@ -212,7 +215,7 @@ test("private MacUpdater settings preserve signature checks and require explicit
   assert.deepEqual(f.updater.feed, {
     provider: "custom",
     updateProvider: PrivateReleaseProvider,
-    owner: "casimir-engineering",
+    owner: "fixture-primary",
     repo: "shenzhen-3D",
     private: true,
     token: TEST_TOKEN,
@@ -272,7 +275,7 @@ test("concurrent downloads and settings changes cannot mutate a pending update",
   assert.equal(f.calls.downloads, 1);
   assert.equal(f.calls.checks, 1);
   await assert.rejects(
-    f.manager.configure({ repository: "mirror-org" }),
+    f.manager.configure({ repository: "fixture-secondary" }),
     /pending update/,
   );
   await assert.rejects(f.manager.connect("replacement"), /pending update/);
@@ -338,7 +341,7 @@ test("errors never expose tokens or raw updater diagnostics, and disconnect clea
   );
   await assert.rejects(
     f.manager.configure({ repository: "untrusted-owner" }),
-    /configured GitHub/,
+    /fixed to this build/,
   );
 });
 
@@ -501,7 +504,7 @@ test("automatic network failures do not surface an error dialog or raw diagnosti
   assert.equal(JSON.stringify(f.states).includes(TEST_TOKEN), false);
 });
 
-for (const releaseOwner of ["casimir-engineering", "mirror-org"]) {
+for (const releaseOwner of ["fixture-primary", "fixture-secondary"]) {
   test(`${releaseOwner} is fixed for fresh settings, authentication and update feed`, async (t) => {
     const f = await fixture(t, { releaseOwner });
     await f.manager.configure({ automatic: false, repository: releaseOwner });
@@ -509,9 +512,9 @@ for (const releaseOwner of ["casimir-engineering", "mirror-org"]) {
     await assert.rejects(
       f.manager.configure({
         repository:
-          releaseOwner === "mirror-org"
-            ? "casimir-engineering"
-            : "mirror-org",
+          releaseOwner === "fixture-secondary"
+            ? "fixture-primary"
+            : "fixture-secondary",
       }),
       /fixed to this build/,
     );
@@ -556,9 +559,9 @@ for (const releaseOwner of ["casimir-engineering", "mirror-org"]) {
   test(`${releaseOwner} drops other-source credentials without decrypting them`, async (t) => {
     const initialSettings = {
       repository:
-        releaseOwner === "mirror-org"
-          ? "casimir-engineering"
-          : "mirror-org",
+        releaseOwner === "fixture-secondary"
+          ? "fixture-primary"
+          : "fixture-secondary",
       automatic: false,
       prereleases: false,
       lastChecked: 1234,
@@ -578,15 +581,15 @@ for (const releaseOwner of ["casimir-engineering", "mirror-org"]) {
   });
 }
 test("wrong signed feed disables updating before credentials or networking", async (t) => {
-  for (const releaseOwner of ["casimir-engineering", "mirror-org"]) {
+  for (const releaseOwner of ["fixture-primary", "fixture-secondary"]) {
     const f = await fixture(t, {
       releaseOwner,
       readPackagedFeed: async () => ({
         provider: "github",
         owner:
-          releaseOwner === "mirror-org"
-            ? "casimir-engineering"
-            : "mirror-org",
+          releaseOwner === "fixture-secondary"
+            ? "fixture-primary"
+            : "fixture-secondary",
         repo: "shenzhen-3D",
         private: true,
         channel: "latest",

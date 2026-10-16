@@ -46,9 +46,14 @@ async function fingerprint(directory, relative = "", result = {}) {
 export async function stageRuntime(
   staging,
   pkg,
-  { releaseOwner = "casimir-engineering" } = {},
+  { releaseOwner, forbiddenOwners = [] } = {},
 ) {
   assertReleaseOwner(releaseOwner);
+  for (const owner of forbiddenOwners) {
+    assertReleaseOwner(owner);
+    if (owner === releaseOwner)
+      throw Error("Excluded owner cannot be the selected release owner");
+  }
   const lockBytes = await fs.readFile(path.join(root, "package-lock.json"));
   const lock = JSON.parse(lockBytes);
   const updaterVersion = pkg.dependencies?.["electron-updater"];
@@ -110,6 +115,11 @@ export async function stageRuntime(
   }
   await dependency("electron-updater", root);
   await fs.mkdir(staging, { recursive: true });
+  await fs.writeFile(
+    path.join(staging, ".release-verification.json"),
+    JSON.stringify({ forbiddenOwners }) + "\n",
+    { mode: 0o600 },
+  );
   const production = {};
   async function copy(directory, relative = "") {
     for (const entry of (
@@ -196,10 +206,55 @@ export async function stageRuntime(
     ),
   };
 }
-export function verifyRuntimeArchive(archive, provenance) {
+export function verifyOwnerIsolation(
+  archive,
+  releaseOwner,
+  { forbiddenOwners = [] } = {},
+) {
+  assertReleaseOwner(releaseOwner);
+  for (const owner of forbiddenOwners) {
+    assertReleaseOwner(owner);
+    if (owner === releaseOwner)
+      throw Error("Excluded owner cannot be the selected release owner");
+  }
+  const asar = require("@electron/asar");
+  let scannedFiles = 0;
+  for (const filename of asar.listPackage(archive)) {
+    if (asar.statFile(archive, filename.slice(1)).files) continue;
+    const text = asar
+      .extractFile(archive, filename.slice(1))
+      .toString("utf8")
+      .toLowerCase();
+    scannedFiles++;
+    if (forbiddenOwners.some((owner) => text.includes(owner.toLowerCase())))
+      throw Error(`Foreign release owner found in packaged file: ${filename}`);
+    for (const match of text.matchAll(
+      /(?:github\.com|api\.github\.com\/repos)\/([a-z0-9-]+)\/shenzhen-3d/g,
+    ))
+      if (match[1] !== releaseOwner.toLowerCase())
+        throw Error(
+          `Foreign release repository URL found in packaged file: ${filename}`,
+        );
+  }
+  return {
+    ownerIsolationVerified: true,
+    ownerIsolationScannedFiles: scannedFiles,
+  };
+}
+export function verifyRuntimeArchive(
+  archive,
+  provenance,
+  isolationPolicy = {},
+) {
   const asar = require("@electron/asar"),
     semver = require("semver");
   const archiveFiles = asar.listPackage(archive);
+  if (archiveFiles.includes("/.release-verification.json"))
+    throw Error("Local release verification policy must not be packaged");
+  const isolation =
+    provenance.releaseOwner === undefined
+      ? {}
+      : verifyOwnerIsolation(archive, provenance.releaseOwner, isolationPolicy);
   if (provenance.releaseOwner !== undefined) {
     const metadata = JSON.parse(asar.extractFile(archive, "package.json"));
     if (
@@ -255,6 +310,7 @@ export function verifyRuntimeArchive(archive, provenance) {
     }
   }
   return {
+    ...isolation,
     packagedDependencyCount: packaged.size,
     packages: [...packaged].sort(),
   };
@@ -272,6 +328,12 @@ async function verifyPackage(output, pkg, provenance) {
   const runtime = verifyRuntimeArchive(
     path.join(resources, "app.asar"),
     provenance,
+    JSON.parse(
+      await fs.readFile(
+        path.join(output, "staging/.release-verification.json"),
+        "utf8",
+      ),
+    ),
   );
   const feed = yaml.load(
     await fs.readFile(path.join(resources, "app-update.yml"), "utf8"),
@@ -309,6 +371,8 @@ async function verifyPackage(output, pkg, provenance) {
     throw Error("Mac updater legacy ZIP fingerprint is inconsistent.");
   return {
     artifacts,
+    ownerIsolationVerified: runtime.ownerIsolationVerified,
+    ownerIsolationScannedFiles: runtime.ownerIsolationScannedFiles,
     packagedDependencyCount: runtime.packagedDependencyCount,
     updateMetadata: {
       file: "latest-mac.yml",
@@ -318,9 +382,11 @@ async function verifyPackage(output, pkg, provenance) {
 }
 async function main() {
   const releaseOwner = assertReleaseOwner(
-    process.argv.find((arg) => arg.startsWith("--release-owner="))?.slice(16) ??
-      "casimir-engineering",
+    process.argv.find((arg) => arg.startsWith("--release-owner="))?.slice(16),
   );
+  const forbiddenOwners = process.argv
+    .filter((arg) => arg.startsWith("--forbid-owner="))
+    .map((arg) => assertReleaseOwner(arg.slice(15)));
   // Packaging always consumes a fresh production build, including stage-only verification.
   await run("npm", ["run", "build"]);
   const pkg = JSON.parse(
@@ -337,7 +403,10 @@ async function main() {
   await fs.cp(path.join(root, "dist"), path.join(staging, "dist"), {
     recursive: true,
   });
-  const runtime = await stageRuntime(staging, pkg, { releaseOwner });
+  const runtime = await stageRuntime(staging, pkg, {
+    releaseOwner,
+    forbiddenOwners,
+  });
   const provenance = {
     version: pkg.version,
     sourceCommit: execFileSync("git", ["rev-parse", "HEAD"], {

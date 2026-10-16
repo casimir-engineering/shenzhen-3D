@@ -3,7 +3,7 @@ const {
 } = require("electron-updater/out/providers/PrivateGitHubProvider");
 const semver = require("semver");
 
-const OWNERS = new Set(["casimir-engineering", "mirror-org"]);
+const { isReleaseOwner } = require("./release-channel.cjs");
 const REPOSITORY = "shenzhen-3D";
 const MAC_ZIP =
   /^Shenzhen-3D-(?:.*-)?(?:Apple-Silicon|arm64|x64|universal)\.zip$/i;
@@ -17,7 +17,7 @@ function releaseVersion(tag) {
 class PrivateReleaseProvider extends PrivateGitHubProvider {
   constructor(options, updater, runtimeOptions) {
     if (
-      !OWNERS.has(options.owner) ||
+      !isReleaseOwner(options.owner) ||
       options.repo !== REPOSITORY ||
       typeof options.token !== "string" ||
       !options.token.trim() ||

@@ -1,26 +1,27 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const RELEASE_OWNERS = ["fixture-primary", "fixture-secondary"];
 const {
-  RELEASE_OWNERS,
+  isReleaseOwner,
   resolveReleaseOwner,
   resolveArtifactReleaseOwner,
   validatePackagedFeed,
 } = require("./release-channel.cjs");
 
-test("packaged release source requires explicit allowlisted signed metadata", () => {
+test("packaged release source requires explicit valid signed metadata", () => {
   for (const owner of RELEASE_OWNERS)
     assert.equal(resolveReleaseOwner({ releaseOwner: owner }, true), owner);
   for (const metadata of [
     {},
     null,
-    { releaseOwner: "unknown" },
-    { releaseOwner: "../mirror-org" },
+    { releaseOwner: "bad/owner" },
+    { releaseOwner: "../fixture-secondary" },
   ])
     assert.throws(
       () => resolveReleaseOwner(metadata, true),
       /Invalid release owner/,
     );
-  assert.equal(resolveReleaseOwner({}, false), "casimir-engineering");
+  assert.equal(resolveReleaseOwner({}, false), null);
 });
 test("feed validation binds owner and private repository without credentials", () => {
   for (const owner of RELEASE_OWNERS) {
@@ -58,9 +59,9 @@ test("notarization retains selected origin and refuses missing modern provenance
       ),
       owner,
     );
-  assert.equal(
-    resolveArtifactReleaseOwner({ version: "0.1.4" }, {}),
-    "casimir-engineering",
+  assert.throws(
+    () => resolveArtifactReleaseOwner({ version: "0.1.4" }, {}),
+    /Invalid release owner/,
   );
   assert.throws(
     () => resolveArtifactReleaseOwner({ version: "0.1.6" }, {}),
@@ -69,17 +70,33 @@ test("notarization retains selected origin and refuses missing modern provenance
   assert.throws(
     () =>
       resolveArtifactReleaseOwner(
-        { version: "0.1.6", releaseOwner: "mirror-org" },
-        { releaseOwner: "casimir-engineering" },
+        { version: "0.1.6", releaseOwner: "fixture-secondary" },
+        { releaseOwner: "fixture-primary" },
       ),
     /does not match provenance/,
   );
   assert.throws(
     () =>
       resolveArtifactReleaseOwner(
-        { version: "0.1.6", releaseOwner: "mirror-org" },
+        { version: "0.1.6", releaseOwner: "fixture-secondary" },
         {},
       ),
     /Invalid release owner/,
   );
+});
+
+test("owner validation accepts repository-neutral names and rejects paths/control characters", () => {
+  for (const owner of ["fixture-primary", "team7", "a"])
+    assert.equal(isReleaseOwner(owner), true);
+  for (const owner of [
+    "",
+    null,
+    "-team",
+    "team-",
+    "team/name",
+    "a".repeat(40),
+    "team\nname",
+    "https://example.test",
+  ])
+    assert.equal(isReleaseOwner(owner), false);
 });

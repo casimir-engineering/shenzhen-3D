@@ -4,7 +4,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
 const asar = require("@electron/asar");
-const { RELEASE_OWNERS } = require("./release-channel.cjs");
+const RELEASE_OWNERS = ["fixture-primary", "fixture-secondary"];
 
 for (const releaseOwner of RELEASE_OWNERS) {
   test(`runtime staging and actual ASAR retain ${releaseOwner} with all production dependencies`, async (t) => {
@@ -14,9 +14,15 @@ for (const releaseOwner of RELEASE_OWNERS) {
     t.after(() => fs.rm(temp, { recursive: true, force: true }));
     const staging = path.join(temp, "staging");
     const pkg = require("../package.json");
-    const { stageRuntime, verifyRuntimeArchive } =
+    const { stageRuntime, verifyRuntimeArchive, verifyOwnerIsolation } =
       await import("./package-mac.mjs");
-    const metadata = await stageRuntime(staging, pkg, { releaseOwner });
+    const forbiddenOwners = RELEASE_OWNERS.filter(
+      (owner) => owner !== releaseOwner,
+    );
+    const metadata = await stageRuntime(staging, pkg, {
+      releaseOwner,
+      forbiddenOwners,
+    });
     assert.equal(metadata.releaseOwner, releaseOwner);
     assert.equal(
       JSON.parse(await fs.readFile(path.join(staging, "package.json")))
@@ -33,7 +39,19 @@ for (const releaseOwner of RELEASE_OWNERS) {
       ),
     );
     const archive = path.join(temp, "app.asar");
+    const policyPath = path.join(staging, ".release-verification.json");
+    const policyBytes = await fs.readFile(policyPath);
+    await fs.rm(policyPath);
     await asar.createPackage(staging, archive);
+    await fs.writeFile(policyPath, policyBytes, { mode: 0o600 });
+    assert.ok(
+      !asar.listPackage(archive).includes("/.release-verification.json"),
+    );
+    assert.equal(
+      verifyOwnerIsolation(archive, releaseOwner, { forbiddenOwners })
+        .ownerIsolationVerified,
+      true,
+    );
     assert.equal(
       verifyRuntimeArchive(archive, metadata).packagedDependencyCount,
       16,
@@ -75,3 +93,60 @@ for (const releaseOwner of RELEASE_OWNERS) {
     );
   });
 }
+
+test("archive isolation rejects foreign text and repository URLs, including frontend assets", async (t) => {
+  const temp = await fs.mkdtemp(
+    path.join(os.tmpdir(), "shenzhen-owner-isolation-"),
+  );
+  t.after(() => fs.rm(temp, { recursive: true, force: true }));
+  const source = path.join(temp, "source"),
+    asset = path.join(source, "frontend.js");
+  await fs.mkdir(source);
+  const { verifyOwnerIsolation } = await import("./package-mac.mjs");
+  for (const [index, text] of [
+    'const source="fixture-secondary";',
+    'const url="https://github.com/another-source/shenzhen-3D";',
+  ].entries()) {
+    await fs.writeFile(asset, text);
+    const archive = path.join(temp, `bad-${index}.asar`);
+    await asar.createPackage(source, archive);
+    assert.throws(
+      () =>
+        verifyOwnerIsolation(archive, "fixture-primary", {
+          forbiddenOwners: ["fixture-secondary"],
+        }),
+      /Foreign release/,
+    );
+  }
+  await fs.writeFile(
+    asset,
+    'const url="https://github.com/fixture-primary/shenzhen-3D";',
+  );
+  const good = path.join(temp, "good.asar");
+  await asar.createPackage(source, good);
+  assert.deepEqual(verifyOwnerIsolation(good, "fixture-primary"), {
+    ownerIsolationVerified: true,
+    ownerIsolationScannedFiles: 1,
+  });
+});
+
+test("local exclusion policy is rejected even without an owner scan", async (t) => {
+  const temp = await fs.mkdtemp(
+    path.join(os.tmpdir(), "shenzhen-private-policy-"),
+  );
+  t.after(() => fs.rm(temp, { recursive: true, force: true }));
+  const source = path.join(temp, "source");
+  await fs.mkdir(source);
+  await fs.writeFile(path.join(source, ".release-verification.json"), "{}");
+  const archive = path.join(temp, "bad.asar");
+  await asar.createPackage(source, archive);
+  const { verifyRuntimeArchive } = await import("./package-mac.mjs");
+  assert.throws(
+    () =>
+      verifyRuntimeArchive(archive, {
+        runtimeFiles: {},
+        runtimeDependencies: [],
+      }),
+    /must not be packaged/,
+  );
+});

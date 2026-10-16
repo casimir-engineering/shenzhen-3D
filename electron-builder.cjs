@@ -28,6 +28,12 @@ module.exports = {
         "app.asar",
       ),
       provenance,
+      JSON.parse(
+        await fs.readFile(
+          path.join(context.packager.projectDir, ".release-verification.json"),
+          "utf8",
+        ),
+      ),
     );
   },
   files: [
@@ -35,6 +41,7 @@ module.exports = {
     "electron/**/*.cjs",
     "build-info.json",
     "package.json",
+    "!.release-verification.json",
     "!**/*.test.cjs",
     "!**/*.spec.cjs",
   ],
@@ -78,7 +85,6 @@ module.exports = {
   // Feed metadata is generated locally; the packaging command always uses --publish never.
   publish: {
     provider: "github",
-    owner: "casimir-engineering",
     repo: "shenzhen-3D",
     private: true,
     channel: "latest",

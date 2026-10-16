@@ -3,12 +3,11 @@ const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { execFile: defaultExecFile } = require("node:child_process");
 const {
-  RELEASE_OWNERS,
+  isReleaseOwner,
   validatePackagedFeed,
 } = require("./release-channel.cjs");
 
 const DAY = 24 * 60 * 60 * 1000;
-const OWNERS = new Set(RELEASE_OWNERS);
 const CLI_PATHS = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"];
 
 /** Main-process only. Public state never contains credentials or updater errors. */
@@ -21,7 +20,7 @@ function createUpdateManager({
   onState = () => {},
   platform = process.platform,
   fetch = globalThis.fetch,
-  releaseOwner = "casimir-engineering",
+  releaseOwner = null,
   readPackagedFeed = async () =>
     require("js-yaml").load(
       await fs.readFile(
@@ -30,7 +29,7 @@ function createUpdateManager({
       ),
     ),
 }) {
-  const sourceConfigured = OWNERS.has(releaseOwner);
+  const sourceConfigured = isReleaseOwner(releaseOwner);
   let supported = platform === "darwin" && !!app.isPackaged && sourceConfigured;
   const settingsFile = path.join(app.getPath("userData"), "updates.json");
   const state = {
@@ -38,7 +37,7 @@ function createUpdateManager({
     version: app.getVersion(),
     status: "idle",
     automatic: true,
-    repository: sourceConfigured ? releaseOwner : "casimir-engineering",
+    repository: sourceConfigured ? releaseOwner : "",
     prereleases: true,
     connected: false,
     message: !sourceConfigured
@@ -509,8 +508,11 @@ function createUpdateManager({
     async configure(changes = {}) {
       await initialized;
       mutable();
-      if (changes.repository !== undefined && !OWNERS.has(changes.repository))
-        throw Error("Choose one of the configured GitHub repositories.");
+      if (
+        changes.repository !== undefined &&
+        !isReleaseOwner(changes.repository)
+      )
+        throw Error("Invalid update repository.");
       if (
         changes.repository !== undefined &&
         changes.repository !== releaseOwner
