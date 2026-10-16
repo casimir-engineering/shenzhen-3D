@@ -32,6 +32,12 @@ Three browser startup runs measured a median 76.2 ms to enable Open, 100 ms to f
 
 This delivery refreshes the Apple Silicon Electron package. Mobile-sized browser testing does not establish new physical-device validation for Windows, Linux, Android or iOS. Earlier platform packages remain separate. The performance evidence in PERFORMANCE.md describes measured workloads; this release does not promise 120 fps for every huge assembly.
 
+## Actual update installation
+
+Both published private feeds offered 0.1.4 to an isolated, signed test fixture reporting version 0.1.3. The app downloaded the Casimir ZIP, verified its SHA-512, and invoked native Squirrel installation. Only the fixture bundle was replaced. Its resulting ASAR matched the frozen release exactly, and the updated bundle passed signature, stapled-ticket and Gatekeeper checks before launching as 0.1.4. Temporary credentials and owned native update cache/ShipIt state were removed.
+
+The fixture contains the final updater implementation with a synthetic older version; the original public 0.1.3 build did not include this updater. The install confirmation response was automated. Automatic relaunch was disabled for this test to preserve profile isolation, followed by a manual launch of the replaced bundle with the same temporary profile. Those limitations are recorded in `updater-install-report.json`.
+
 ## Artifacts
 
 The DMG is 140,847,210 bytes, SHA-256 `05f87af4e3969ebf15c73b15ed240101414c22db76a3472d0a6651c720ec28bf`. The updater ZIP is 140,231,389 bytes, SHA-256 `5cb566752e46f986df2db6d28fd9b51de34c81ce5c0706ab2b91968e79cbbcb9`. The release feed includes matching SHA-512 fingerprints.
