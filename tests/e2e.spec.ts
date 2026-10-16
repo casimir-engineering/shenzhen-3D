@@ -541,3 +541,23 @@ test('ray tracing reports unsupported devices and keeps the normal viewer usable
   await page.getByRole('button', {name: 'Fit model', exact: true}).click();
   await expect(page.locator('canvas').first()).toBeVisible();
 });
+
+test('recent files return after closing a document and reopen without retaining a renderer', async ({page}) => {
+  const recent = page.getByRole('region', {name:'Recent files'});
+  await expect(recent).toBeVisible();
+  await expect(recent).toContainText('Files you open will appear here.');
+  const triangle = Buffer.from('solid recent\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid recent\n');
+  await page.locator('input[type=file]').setInputFiles({name:'recent-part.stl',mimeType:'model/stl',buffer:triangle});
+  await expect(page.locator('.model-badge')).toContainText('1 part');
+  await page.getByRole('button',{name:'Close document',exact:true}).click();
+  await expect(page.locator('.viewport-canvas canvas')).toHaveCount(0);
+  await expect(recent).toBeVisible();
+  await recent.getByRole('button',{name:/recent-part.stl/}).click();
+  await expect(page.locator('.model-badge')).toContainText('1 part');
+  await page.getByRole('button',{name:'Close document',exact:true}).click();
+  await page.reload();
+  await expect(recent.getByRole('button',{name:/recent-part.stl/})).toBeVisible();
+  await expect(page.locator('.viewport-canvas canvas')).toHaveCount(0);
+  const resources = await page.evaluate(() => performance.getEntriesByType('resource').map(item=>item.name));
+  expect(resources.some(name=>/(?:model-runtime|three\.core)[.-]/.test(name))).toBe(false);
+});

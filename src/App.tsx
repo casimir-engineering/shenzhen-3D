@@ -1,5 +1,13 @@
 import { version as appVersion } from "../package.json";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import type { UpdateState } from "./core/updates";
 import type { Vector3 } from "three";
 import { createId } from "./core/id";
 import {
@@ -82,6 +90,7 @@ import type {
   ExactPair,
 } from "./core/types";
 type ModelRuntime = typeof import("./core/model-runtime");
+const UpdatesDialog = lazy(() => import("./components/UpdatesDialog"));
 // Failed chunk fetches can be retried by opening a file again.
 let runtimePromise: Promise<ModelRuntime> | undefined;
 const loadRuntime = () =>
@@ -161,6 +170,15 @@ function App() {
   const fileInput = useRef<HTMLInputElement>(null);
   const help = useRef<HTMLDialogElement>(null);
   const settings = useRef<HTMLDialogElement>(null);
+  const [updatesOpen, setUpdatesOpen] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateState["status"]>();
+  useEffect(
+    () =>
+      window.shenzhenUpdates?.subscribe((state) =>
+        setUpdateStatus(state.status),
+      ),
+    [],
+  );
   const [mode, setMode] = useState<SelectionMode>("point"),
     [filter, setFilter] = useState<FeatureFilter>("auto"),
     [tool, setTool] = useState<ToolMode>("distance"),
@@ -182,8 +200,13 @@ function App() {
   const [theme, setTheme] = useState<"dark" | "light">(
       preferences.current.theme || "dark",
     ),
-    [navigation, setNavigation] = useState<"mouse" | "trackpad">(
-      preferences.current.navigation || "mouse",
+    [navigation, setNavigation] = useState<"auto" | "mouse" | "trackpad">(
+      preferences.current.navigation === "trackpad"
+        ? "trackpad"
+        : preferences.current.navigationVersion === 2 &&
+            preferences.current.navigation === "mouse"
+          ? "mouse"
+          : "auto",
     );
   const [navigationDetail, setNavigationDetail] = useState<"auto" | "full">(
     preferences.current.navigationDetail === "full" ? "full" : "auto",
@@ -223,10 +246,22 @@ function App() {
     [measuring, setMeasuring] = useState(false);
   const epoch = useRef(0),
     loadEpoch = useRef(0);
+  const recentFiles = useRef(new Map<string, File[]>());
   const [recent, setRecent] = useState<{ name: string; format: string }[]>(
     () => {
       try {
-        return JSON.parse(localStorage.getItem("shenzhen-recent") || "[]");
+        const entries = JSON.parse(
+          localStorage.getItem("shenzhen-recent") || "[]",
+        );
+        return Array.isArray(entries)
+          ? entries
+              .filter(
+                (entry) =>
+                  typeof entry?.name === "string" &&
+                  typeof entry?.format === "string",
+              )
+              .slice(0, 6)
+          : [];
       } catch {
         return [];
       }
@@ -256,7 +291,14 @@ function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem(
       "shenzhen-preferences",
-      JSON.stringify({ unit, precision, theme, navigation, navigationDetail }),
+      JSON.stringify({
+        unit,
+        precision,
+        theme,
+        navigation,
+        navigationVersion: 2,
+        navigationDetail,
+      }),
     );
   }, [unit, precision, theme, navigation, navigationDetail]);
   const clear = useCallback(() => {
@@ -436,10 +478,15 @@ function App() {
           if (restored.warnings.length) setError(restored.warnings.join(" "));
           else notify(`Opened project · ${restored.notes.length} notes`);
         }
+        const recentName = projectFile?.name ?? model.name;
         const next = [
-          { name: model.name, format: model.format },
-          ...recent.filter((r) => r.name !== model.name),
-        ].slice(0, 5);
+          { name: recentName, format: projectFile ? "sz3d" : model.format },
+          ...recent.filter((r) => r.name !== recentName),
+        ].slice(0, 6);
+        recentFiles.current.set(recentName, files);
+        for (const name of recentFiles.current.keys())
+          if (!next.some((entry) => entry.name === name))
+            recentFiles.current.delete(name);
         setRecent(next);
         localStorage.setItem("shenzhen-recent", JSON.stringify(next));
         if (window.innerWidth < 900) setLeft(false);
@@ -462,6 +509,30 @@ function App() {
       setError(String(e));
     }
   }, [load]);
+  const closeDocument = () => {
+    if (
+      (notes.length || saved.length) &&
+      !window.confirm(
+        "Close this document? Save your commented project first to keep notes and measurements.",
+      )
+    )
+      return;
+    ++loadEpoch.current;
+    cad.cancel();
+    clear();
+    viewer.current?.clearModel();
+    if (docRef.current) runtime?.disposeDocument(docRef.current);
+    viewer.current = undefined;
+    setDoc(undefined);
+    setRuntime(undefined);
+    setReady(false);
+    setNotes([]);
+    setSaved([]);
+    setRayTracing(false);
+    setError("");
+    setHover("");
+    sourceFiles.current = [];
+  };
   const startNote = (scope: ReviewNote["scope"]) => {
     if (!doc) return;
     const previous = points.at(-1);
@@ -821,6 +892,13 @@ function App() {
       points: p.map((p) => p.point),
       text,
       path: current?.path,
+      showAxes: current?.kind === "distance" && !!current.delta,
+      axisTexts:
+        current?.kind === "distance" && current.delta
+          ? (current.delta.map(
+              (value, axis) => `Δ${"XYZ"[axis]} ${number(value)} ${unit}`,
+            ) as [string, string, string])
+          : undefined,
     });
   }, [current, points, number, unit, precision, ready]);
   const changeMode = (m: SelectionMode) => {
@@ -1140,6 +1218,15 @@ function App() {
             onClick={() => void shareProject()}
           >
             <Share2 size={18} />
+          </IconButton>
+        )}
+        {doc && (
+          <IconButton
+            title="Close document"
+            onClick={closeDocument}
+            disabled={!!loading}
+          >
+            <X size={18} />
           </IconButton>
         )}
         <IconButton
@@ -1513,7 +1600,9 @@ function App() {
             </>
           )}
           {!doc && !loading && (
-            <div className="welcome">
+            <div
+              className={`welcome${recent.length ? " welcome-returning" : ""}`}
+            >
               <div className="welcome-symbol">
                 <Box size={48} strokeWidth={1} />
                 <span className="welcome-dimension">80.000</span>
@@ -1539,6 +1628,33 @@ function App() {
               <button className="demo-button" onClick={demo}>
                 Explore a sample model <ChevronRight size={15} />
               </button>
+              <section className="recent" aria-label="Recent files">
+                <span>RECENT FILES</span>
+                {recent.length ? (
+                  recent.map((entry) => (
+                    <button
+                      key={entry.name}
+                      title={
+                        recentFiles.current.has(entry.name)
+                          ? `Reopen ${entry.name}`
+                          : `Locate ${entry.name} to reopen`
+                      }
+                      onClick={() => {
+                        const files = recentFiles.current.get(entry.name);
+                        if (files) void load(files);
+                        else void open();
+                      }}
+                    >
+                      <FileBox size={16} />
+                      <span>{entry.name}</span>
+                      <small>{entry.format.toUpperCase()}</small>
+                      <ChevronRight size={14} />
+                    </button>
+                  ))
+                ) : (
+                  <p>Files you open will appear here.</p>
+                )}
+              </section>
               <div className="format-list">
                 STEP <span>·</span> STL <span>·</span> OBJ <span>·</span> 3MF{" "}
                 <span>·</span> GLTF <span>·</span> DWG <span>·</span> DXF{" "}
@@ -1548,22 +1664,6 @@ function App() {
                 Drop files anywhere. Include textures and companion files
                 together.
               </small>
-              {recent.length > 0 && (
-                <div className="recent">
-                  <span>RECENTLY VIEWED</span>
-                  {recent.slice(0, 3).map((r) => (
-                    <button
-                      key={r.name}
-                      title="Reopen using the file picker"
-                      onClick={() => void open()}
-                    >
-                      <FileBox size={14} />
-                      {r.name}
-                      <small>{r.format.toUpperCase()}</small>
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
           )}
           {section && doc && (
@@ -2135,15 +2235,38 @@ function App() {
         <span className="status-navigation">
           {usingNavigationDetail
             ? "Navigation detail · full detail when still"
-            : navigation === "trackpad"
+            : navigation !== "mouse"
               ? "Two-finger pan · pinch zoom"
-              : "Drag orbit · right-drag pan · scroll zoom"}
+              : "Left/middle orbit · right-drag pan · scroll zoom"}
         </span>
         <button onClick={() => settings.current?.showModal()}>
           {unit} <ChevronDown size={11} />
         </button>
-        <span className="version">v{appVersion}</span>
+        {window.shenzhenUpdates ? (
+          <button
+            data-open-updates
+            aria-label="Updates"
+            onClick={() => setUpdatesOpen(true)}
+          >
+            {updateStatus === "available" || updateStatus === "ready"
+              ? "Update available"
+              : `v${appVersion} · Updates`}
+          </button>
+        ) : (
+          <span className="version">v{appVersion}</span>
+        )}
       </footer>
+      {updatesOpen && (
+        <Suspense
+          fallback={
+            <div className="toast" role="status">
+              Opening updates…
+            </div>
+          }
+        >
+          <UpdatesDialog onClose={() => setUpdatesOpen(false)} />
+        </Suspense>
+      )}
       {toast && (
         <div className="toast" role="status">
           <Check size={16} />
@@ -2173,7 +2296,7 @@ function App() {
             <h3>Move around</h3>
             <dl>
               <dt>Orbit</dt>
-              <dd>Left drag / one finger</dd>
+              <dd>Left or middle drag / one finger</dd>
               <dt>Pan</dt>
               <dd>Right drag / two fingers</dd>
               <dt>Zoom</dt>
@@ -2416,9 +2539,12 @@ function App() {
           <select
             value={navigation}
             onChange={(e) =>
-              setNavigation(e.target.value as "mouse" | "trackpad")
+              setNavigation(e.target.value as "auto" | "mouse" | "trackpad")
             }
           >
+            <option value="auto">
+              Automatic · trackpad pans, mouse wheel zooms
+            </option>
             <option value="mouse">Mouse · wheel zooms</option>
             <option value="trackpad">
               Trackpad · two fingers pan, pinch zooms

@@ -731,21 +731,23 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  width: min(100%, 340px);
-  margin-top: 28px;
+  width: min(100%, 420px);
+  margin: 24px 0 8px;
   text-align: left;
 }
 .recent > span {
-  font: 8px var(--mono);
+  font: 10px var(--mono);
   color: var(--muted);
   letter-spacing: 1px;
   margin-bottom: 4px;
 }
 .recent button {
-  font-size: 10px;
+  font-size: 13px;
   justify-content: flex-start;
   color: var(--secondary);
-  padding: 7px 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 4px;
   max-width: 100%;
   overflow: hidden;
@@ -755,6 +757,40 @@ kbd {
   font: 8px var(--mono);
   color: var(--muted);
   margin-left: auto;
+}
+.recent button > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent > p {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0;
+}
+.welcome-returning {
+  justify-content: flex-start;
+  padding-top: 32px;
+}
+.welcome-returning .welcome-symbol {
+  display: none;
+}
+.welcome-returning h1 {
+  font-size: 28px;
+  margin-top: 12px;
+}
+.welcome-returning h1 br {
+  display: none;
+}
+.welcome-returning h1 span::before {
+  content: " ";
+}
+.welcome-returning > p {
+  font-size: 13px;
+  margin: 8px 0 16px;
+}
+.welcome-returning > p br {
+  display: none;
 }
 .inspector-tabs {
   border-bottom: 1px solid var(--line);
@@ -1339,6 +1375,141 @@ kbd {
   width: calc(100% - 32px);
   max-height: calc(100dvh - 48px);
   overflow: auto;
+}
+.updates-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+.updates-eyebrow {
+  display: block;
+  font: 10px var(--mono);
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.updates-status {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin: 24px 0 20px;
+}
+.updates-mark {
+  color: var(--jade);
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--inset);
+}
+.updates-status h3 {
+  font-size: 17px;
+  margin: 0 0 8px;
+}
+.updates-status p {
+  margin: 0;
+  color: var(--secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.updates-actions {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.updates-actions .button {
+  justify-self: start;
+}
+.updates-actions .muted {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.updates-preferences {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 4px 0;
+}
+.updates-toggle {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: center;
+  padding: 12px 0;
+}
+.updates-toggle strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+}
+.updates-toggle small {
+  display: block;
+  color: var(--muted);
+  margin-top: 4px;
+  font-size: 12px;
+}
+.updates-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--jade);
+}
+.updates-connection {
+  margin: 16px 0 20px;
+  font-size: 13px;
+}
+.updates-connection summary {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  cursor: pointer;
+  min-height: 32px;
+}
+.updates-connection summary span {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+.updates-connection label {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 12px;
+  color: var(--secondary);
+}
+.updates-connection select,
+.updates-connection input {
+  width: 100%;
+  min-height: 36px;
+}
+.updates-connection p {
+  line-height: 1.5;
+}
+.updates-connection form {
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+}
+.updates-connection form small {
+  display: block;
+  line-height: 1.5;
+  margin: 0 0 12px;
+  color: var(--muted);
+}
+.updates-auth-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.updates-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  font: 12px var(--mono);
+}
+.updates-progress progress {
+  flex: 1;
+  accent-color: var(--jade);
+  height: 6px;
+}
+.updates-error {
+  color: var(--copper, #d78569);
+  font-size: 13px;
 }
 .dialog::backdrop {
   background: rgba(0, 0, 0, 0.6);
