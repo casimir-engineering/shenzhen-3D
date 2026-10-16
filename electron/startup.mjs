@@ -14,13 +14,14 @@ const environment = {...process.env};
 delete environment.SHENZHEN_3D_DEV_URL;
 const rows = [];
 try {
-  const main = await fs.readFile('electron/main.cjs'), assets = await fs.readFile('electron/assets.cjs');
+  const main = await fs.readFile('electron/main.cjs'), assets = await fs.readFile('electron/assets.cjs'), preload = await fs.readFile('electron/preload.cjs');
   const packageMetadata = JSON.parse(await fs.readFile('package.json', 'utf8'));
   for (const [name, dist] of [['baseline', baseline], ['candidate', candidate]]) {
     const root = path.join(directory, name);
     await fs.mkdir(path.join(root, 'electron'), {recursive: true});
     await fs.writeFile(path.join(root, 'electron/main.cjs'), main);
     await fs.writeFile(path.join(root, 'electron/assets.cjs'), assets);
+    await fs.writeFile(path.join(root, 'electron/preload.cjs'), preload);
     await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({name: 'shenzhen-startup-probe', version: packageMetadata.version, main: 'electron/main.cjs'}));
     await fs.symlink(path.resolve(dist), path.join(root, 'dist'), 'dir');
   }
