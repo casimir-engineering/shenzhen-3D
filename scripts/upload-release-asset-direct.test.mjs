@@ -243,8 +243,8 @@ async function fixture(runTest, options = {}) {
       logs = [],
       deleted = [];
     let curls = 0;
-    const run = async (command, args, stdin) => {
-      calls.push({ command, args, stdin });
+    const run = async (command, args, stdin, timeout) => {
+      calls.push({ command, args, stdin, timeout });
       if (command === "gh") {
         if (args[0] === "auth")
           return { code: 0, stdout: "fake_token_never_log\n" };
@@ -343,6 +343,8 @@ test("explicit replacement deletes only old final, then exact chunks after verif
       assert.deepEqual(deleted, [20, 40]);
       const curl = calls.find((call) => call.command === "/usr/bin/curl");
       assert.equal(curl.args[curl.args.indexOf("--limit-rate") + 1], "2M");
+      assert.equal(curl.args[curl.args.indexOf("--max-time") + 1], "900");
+      assert.equal(curl.timeout, 905_000);
       assert.ok(
         calls.findIndex((call) => call.args.at(-1)?.endsWith("/40")) >
           calls.indexOf(curl),

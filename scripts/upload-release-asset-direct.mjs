@@ -14,6 +14,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { hashFile } from "./upload-release-asset.mjs";
 import { assertAuthorizedRepository } from "./upload-release-asset-config.mjs";
 const TAGS = new Set(["preview-0.1.4", "preview-0.1.5", "preview-0.1.6"]);
+const TRANSFER_TIMEOUT_SECONDS = 900;
 export function validateDirectInput(input) {
   assertAuthorizedRepository(input.repo);
   // Replacement authorization is deliberately limited to the current drafts.
@@ -278,14 +279,14 @@ export async function uploadDirect(
             "--connect-timeout",
             "20",
             "--max-time",
-            "240",
+            String(TRANSFER_TIMEOUT_SECONDS),
             "--output",
             response,
             "--write-out",
             '{"http":"%{http_code}","uploaded":%{size_upload},"seconds":%{time_total}}',
           ],
           config,
-          245_000,
+          (TRANSFER_TIMEOUT_SECONDS + 5) * 1000,
         );
         let metrics = {};
         try {
