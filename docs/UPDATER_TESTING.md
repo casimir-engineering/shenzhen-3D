@@ -59,6 +59,10 @@ On a constrained uplink, serialize large Apple and GitHub uploads. Concurrent 14
 
 Keep accepted submissions and verified archives as checkpoints. Resume from the next unfinished phase after a disconnect. Never regenerate a frozen updater ZIP after its hash has entered the release feed. Prepare release notes, source-isolation reports and installer screenshots while uploads run, then publish after final artifact verification.
 
+For the frozen 0.1.6 ZIP, `scripts/prepare-release-zip-delta.mjs` accepts `--repo`, `--base`, `--target` and an existing isolated `--output` directory under `artifacts`. It checks final notarized provenance, creates a zstd patch against the released 0.1.4 ZIP, and verifies byte-for-byte reconstruction. The measured patch is 11.56 MB versus a 140.24 MB ZIP (92% less upload). DMG patches were nearly as large as the original and are not used.
+
+When this repository's Actions are available, upload the generated patch to the held draft with the guarded upload tool, then pass `delta-inputs.json.workflowInputs` to the `assemble-release-zip-delta.yml` workflow. The workflow downloads its base and patch from this repository only, validates the frozen tag and notarized metadata, reconstructs and verifies the exact ZIP, uploads without replacing an existing different file, and removes only its verified patch. It does not publish the release. Thirteen tests cover the guards, reconstruction, cleanup, completed reruns and held-draft discovery. Direct upload remains the fallback when Actions cannot run. Actions could not start during this delivery because of the account spending restriction, so the final assets were delivered using the direct uploader.
+
 ## Isolated native update installation
 
 For an upgrade from a released app that already includes the updater, copy that signed app into a new fixture directory. Keep the original untouched:
@@ -105,3 +109,7 @@ The test intercepts the app's confirmation response and disables `autoRunAppAfte
 On 16 October 2026, the private feed offered 0.1.4 to the signed synthetic 0.1.3 fixture. The release ZIP downloaded with the expected SHA-512; native Squirrel replaced the fixture, and the resulting signed/notarized 0.1.4 app launched with the same isolated profile. Its ASAR matched the frozen target. Credential/cache/job/preference cleanup was verified.
 
 The fixture contains final updater code with an older package version. This is not evidence that the original 0.1.3 release, which lacked the updater, can self-update. The report is attached as `updater-install-report.json` to this repository’s `preview-0.1.4` release. Apple's accepted ZIP/DMG submissions and final artifact fingerprints are recorded separately in the release provenance.
+
+## Recorded 0.1.6 result
+
+On 16 October 2026, a copy of the actual signed, released 0.1.4 app upgraded through the published private feed to the final 0.1.6 distribution. Downloaded SHA-512, native Squirrel replacement, frozen target ASAR, signature, stapled ticket, Gatekeeper and isolated relaunch passed. The update source remained bound to the distribution’s repository. The owner-specific `updater-install-report.json` is attached to `preview-0.1.6`; the original 0.1.4 release and real Applications/profile directories were preserved.
