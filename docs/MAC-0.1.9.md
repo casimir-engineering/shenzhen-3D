@@ -18,8 +18,8 @@ Each signed Mac package passed 20 runtime checks, nine native file-opening check
 
 The native fixture verifies event validation, bounded queue consumption, window/timestamp isolation and subscription lifecycle. Physical two-finger twist and phased trackpad event delivery have not been verified. The automated discrete-wheel result from 0.1.8 is not reused as proof for the changed 0.1.9 native binary.
 
-## Delivery status
+## Delivery
 
-Signed Apple Silicon packages are built. Notarization and final release verification are in progress; a signature alone does not establish notarization. Final release evidence will record Apple acceptance, stapled tickets, Gatekeeper checks, installer layout and artifact hashes.
+The Apple Silicon app and Retina DMG are Developer ID signed, Apple notarized and stapled. Final checks verified Gatekeeper, tickets, archive hashes and the normal Finder auto-open layout with an Applications shortcut and 1×/2× artwork. Each distribution keeps its own fixed updater repository. Release evidence records final artifact hashes and native verification scope.
 
 The user's running application and real profiles are preserved. No new native updater replacement test has been performed for this version.

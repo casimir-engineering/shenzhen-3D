@@ -2,7 +2,7 @@
 
 A CAD, mesh and drawing viewer for inspecting assemblies and taking engineering measurements. One React/Three.js interface runs in the browser/PWA, a Chromium desktop performance shell, and lightweight Tauri desktop/mobile shells. Model files are processed on the device.
 
-[Mac 0.1.8 release notes](docs/MAC-0.1.8.md) · [Platform delivery and validation](docs/DELIVERY.md)
+[Mac 0.1.9 release notes](docs/MAC-0.1.9.md) · [Platform delivery and validation](docs/DELIVERY.md)
 
 Download installers from this repository’s **Releases** page.
 

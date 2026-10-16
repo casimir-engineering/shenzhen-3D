@@ -1,27 +1,30 @@
-# Shenzhen 3D 0.1.2 delivery
+# Shenzhen 3D 0.1.9 delivery
 
-Private review/rendering preview, 16 October 2026 (Asia/Shanghai).
+The `preview-0.1.9` release adds native two-finger trackpad twist to the Chromium macOS app. It rolls the view around the current sight line without changing the model, measurement coordinates, current view center or zoom. Left and middle drag pan; right drag orbits around the current view center; trackpad swipe pans; pinch and mouse wheel zoom. Android and iOS retain one-finger orbit and two-finger pan/pinch.
 
-Downloads are available in this repository’s `preview-0.1.2` release.
-
-The update adds comments attached to parts, points and model features; portable `.sz3d` projects containing original source files, notes, measurements and units; shaded/edge/wireframe/dashed hidden-line modes; movable and uniform lighting; and genuine progressive WebGPU ray tracing with measurement overlays and PNG export. [Review files](REVIEW.md) and [rendering](RENDERING.md) describe use and limits.
+Frozen runtime: `4f7dbf54ae08bb9c0b29d08e41a4808871292303`. All packages use 101 frozen frontend files, including `assets/index-C5HXuWIs.js`; `index.html` SHA-256 is `3f490eece7af43861f9d63a97718ddaa68ec2f9d024d665b15247d7d25a78159`.
 
 ## Packages
 
-The release set contains 16 assets: macOS universal DMG; Apple Silicon Chromium Performance DMG; Windows x64 EXE/MSI; Linux x64 AppImage/DEB/RPM; Android ARM64 development APK/unsigned AAB; registered-device iOS IPA/ARM64 simulator archive; web ZIP; native notices ZIP; README; build provenance; and SHA-256 checksums. The source tag is `preview-0.1.2`, at `44761a8`.
+| Platform | Assets and scope |
+| --- | --- |
+| macOS Apple Silicon | Developer ID signed, notarized and stapled Chromium app in a Retina drag-to-Applications DMG and updater ZIP, with separate blockmaps/feed and verification evidence. Each distribution updates from its own fixed repository. |
+| Windows x64 | NSIS EXE and MSI; unsigned. |
+| Linux ARM64 | AppImage, Debian and RPM. Linux x64 is unavailable in this release. |
+| Android ARM64 | Development-signed APK for direct installation and unsigned AAB requiring production Play signing. |
+| iOS ARM64 | Development IPA for the existing 19 registered devices; profile expires 15 October 2027. Simulator archive preserves executable modes. Neither is an App Store distribution. |
+| Web | Static ZIP; serve over HTTP(S). HTTPS or localhost enables the offline PWA. No hosted site was deployed. |
 
-Every package uses the frozen frontend with `index.html` SHA-256 `5b2e883a9034762dff05e565a6176259cf1540892adc14636d0b98cf4f718350` and JavaScript entry `assets/index-dpyKHpus.js`. The manifest records individual native build inputs and verification. CI's web output matched all 79 frozen files byte for byte.
-
-Mac apps are Developer ID signed but not notarized. Windows installers are unsigned. Android uses a development key; the AAB requires production signing. The iOS IPA is development signed for the team's registered devices, with profile expiry on 15 October 2027; it is not an App Store or arbitrary-device installer. No app-store or public website publication was performed. Serve the web ZIP's `dist/` over HTTP(S); HTTPS or localhost enables its offline PWA.
+The full inventory contains 21 assets: ten Mac installer/updater/evidence files and eleven additional platform/provenance files. Published hashes and platform validation scopes are recorded in `build-info.json`, `notarization-verification.json`, `runtime-report.json`, `SHA256SUMS.txt` and `platform-provenance.json`.
 
 ## Verification
 
-All nine platform CI jobs passed at `44761a8`. Windows/Linux startup checks passed; these are not full interactive tests on those operating systems.
+161 frontend tests, 61 Electron tests, 38 GPU rotation assertions and 1,262 navigation assertions passed. Production browser tests passed 33 cases with three expected viewport-specific skips. Each signed Mac package passed 20 runtime checks, nine native file-opening checks and seven limited native addon/IPC checks. Physical trackpad twist remains unverified; the native fixture establishes queue/IPC behavior and the GPU tests establish camera behavior.
 
-Local checks passed: 115 unit tests, 12 exact-CAD checks and 18 production desktop/mobile browser workflows, with two expected viewport-specific skips. Sample STEP comments and exact measurements survived portable-project save/reopen. Offline reload/import, render controls, archive validation and unsupported-WebGPU recovery passed. Hardware tests verified genuine tracing, retained assembly instancing, measurement overlays, cancellation and exact display/export color parity. The packaged Chromium app passed 19 runtime checks, including native project open/save and tracing.
+Windows startup survived 15 seconds under x64 emulation in a Windows ARM64 VM. The final Linux ARM64 AppImage survived 15 seconds under Xvfb. Installer payloads, architecture, versions, permissions and frozen frontend assets were checked. These startup tests do not establish model rendering, physical input or GPU performance on those platforms.
 
-The final [performance regression](PERFORMANCE.md) retained approximately 120 fps on the M5 Max at a 2880×1800 drawing buffer: 376,000 parts / 98.30 million logical triangles with 86.37 million navigation triangles submitted, and 37,600 separate geometry identities / 9.83 million triangles at full detail. These are specified replicated workloads and renderer scheduling measurements, not a guarantee for arbitrary geometry, perfect frame intervals or physical presentation. Ray tracing progressively refines still views; navigation uses raster rendering.
+The Android APK installed and launched in an API 35 emulator; signature and 16 KB ZIP/ELF alignment passed. Native touch was not tested because app-bound automation could not select the SDK emulator. The iOS simulator rendered the demo and measured two selected points; drag attempts did not establish camera movement, and pinch remains unverified. No physical mobile device was tested.
 
-The signed lightweight Mac app imported the sample STEP in 3.02 seconds, rendered hidden lines, exported PNG and saved/reopened a portable project. Android ARM64 installation/launch/rendering and 16 KB alignment passed. The iOS 26.5 simulator launched the demo, accepted a note anchor/text and exported a native project; note saving and native touch scrolling remain unverified. See [platform evidence](PLATFORMS.md) for runtime scope. No physical mobile device was tested. Detailed per-artifact evidence is in the release manifest.
+GitHub Actions jobs could not start because of account billing or spending limits. Packages were built locally instead. An isolated Linux x64 Rosetta build failed during chroot setup; no x64 package is claimed. The user's running applications and real profiles were preserved. There was no new native update-install replacement test for this version.
 
-Notes and measurements are retained by saving `.sz3d` files; the offline application cache does not persist a working model/session. Review files are editable snapshots rather than live collaboration. Prior private previews `preview-0.1.0` and `preview-0.1.1` remain available unchanged.
+Earlier releases remain unchanged. See [Mac release notes](MAC-0.1.9.md), [controls](CONTROLS.md), [platform details](PLATFORMS.md) and [performance evidence](PERFORMANCE.md).

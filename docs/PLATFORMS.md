@@ -5,7 +5,8 @@ Shenzhen 3D uses one local React/Three.js viewer. The primary macOS application 
 | Platform | Package | Build command |
 | --- | --- | --- |
 | Web | Static site / installable PWA | `node scripts/platform-build.mjs web` |
-| macOS 12+ | `.app`, `.dmg` | `node scripts/platform-build.mjs desktop --bundles app,dmg` |
+| macOS 13+ Apple Silicon (Chromium) | `.app`, `.dmg`, updater ZIP | `npm run package:electron:mac -- --release-owner="<github-owner>"` |
+| macOS 12+ (lightweight Tauri) | `.app`, `.dmg` | `node scripts/platform-build.mjs desktop --bundles app,dmg` |
 | Windows | NSIS `.exe`, MSI | `node scripts/platform-build.mjs desktop --bundles nsis,msi` |
 | Linux | AppImage, Debian, RPM | `node scripts/platform-build.mjs desktop --bundles deb,rpm,appimage` |
 | Android 7+ | APK, AAB | `node scripts/platform-build.mjs android --apk --aab` |
@@ -15,11 +16,11 @@ Build on the target desktop operating system. Windows uses WebView2; its install
 
 ## 0.1.9 build checkpoint
 
-Runtime source: `4f7dbf54ae08bb9c0b29d08e41a4808871292303`. Builds use 101 frozen frontend files with `assets/index-C5HXuWIs.js`. The current packages are being finalized for release; the historical records below describe earlier versions.
+Runtime source: `4f7dbf54ae08bb9c0b29d08e41a4808871292303`. Builds use 101 frozen frontend files with `assets/index-C5HXuWIs.js`. The historical records below describe earlier versions. See [current delivery](DELIVERY.md) for the 0.1.9 package inventory and validation limits.
 
 | Platform | Build and verification |
 | --- | --- |
-| macOS Apple Silicon | Signed Chromium app and DMG; packaged runtime, file opening, native addon and integrity checks passed. Apple notarization is pending. |
+| macOS Apple Silicon | Signed Chromium app and DMG; packaged runtime, file opening, native addon and integrity checks passed. App and DMG notarization, stapled tickets, Gatekeeper and final Finder layout passed. |
 | Windows x64 | EXE and MSI built locally in Windows; executable architecture/version and embedded frontend checked; isolated startup passed for 15 seconds. Unsigned. |
 | Linux ARM64 | Debian, RPM and AppImage built locally in Ubuntu; final AppImage startup passed for 15 seconds under Xvfb. Package permissions and extracted payloads passed verification. |
 | Android ARM64 | Development-signed APK and unsigned AAB built; APK signature and 16 KB alignment passed. Installed and launched in an API 35 emulator. Native pan/pinch unverified. |
