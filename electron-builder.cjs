@@ -1,7 +1,7 @@
 const path = require("node:path");
 module.exports = {
   appId: "com.shenzhen3d.performance",
-  productName: "Shenzhen 3D Performance",
+  productName: "Shenzhen 3D",
   asar: true,
   npmRebuild: false,
   files: [
