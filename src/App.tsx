@@ -2246,7 +2246,14 @@ function App() {
           <button
             data-open-updates
             aria-label="Updates"
-            onClick={() => setUpdatesOpen(true)}
+            onClick={() => {
+              setUpdatesOpen(true);
+              void window.shenzhenUpdates
+                ?.check()
+                .catch(() =>
+                  notify("Update check unavailable. Try again from Updates."),
+                );
+            }}
           >
             {updateStatus === "available" || updateStatus === "ready"
               ? "Update available"
