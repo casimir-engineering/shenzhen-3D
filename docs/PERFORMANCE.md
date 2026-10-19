@@ -8,7 +8,7 @@ The comparison uses baseline application source `7937fa8` and optimized renderer
 
 | Workload                                     | Logical parts | Logical triangles | Baseline render fps | Optimized render fps | Draw calls, before → after |
 | -------------------------------------------- | ------------: | ----------------: | ------------------: | -------------------: | -------------------------: |
-| Included sample STEP                            |             — |                 — |              120.00 |               120.01 |                 1,600 → 43 |
+| Earlier sample assembly                         |             — |                 — |              120.00 |               120.01 |                 1,600 → 43 |
 | Sample ×10                                      |        37,600 |         9,829,620 |              120.00 |               120.02 |                 1,600 → 42 |
 | Sample ×50                                      |       188,000 |        49,148,100 |              120.01 |               120.01 |                 1,600 → 47 |
 | Sample ×100                                     |       376,000 |        98,296,200 |              101.03 |               120.02 |                 1,600 → 51 |
@@ -18,7 +18,7 @@ The last workload improved approximately 64.7×. Initial multi-draw batching rea
 
 | Workload                              | CPU render p95, before → after (ms) | GPU timer p95, before → after (ms) | Hover pick CPU p95, before → after (ms) |
 | ------------------------------------- | ----------------------------------: | ---------------------------------: | --------------------------------------: |
-| Included sample STEP                     |                         1.00 → 0.30 |                        1.40 → 1.22 |                             1.30 → 0.40 |
+| Earlier sample assembly                  |                         1.00 → 0.30 |                        1.40 → 1.22 |                             1.30 → 0.40 |
 | Sample ×10                               |                         0.90 → 0.30 |                        4.70 → 4.02 |                             8.70 → 0.30 |
 | Sample ×50                               |                         1.00 → 0.30 |                        5.38 → 5.18 |                            44.40 → 0.30 |
 | Sample ×100                              |                         1.00 → 0.30 |                       10.46 → 6.92 |                            92.40 → 0.30 |
@@ -46,7 +46,7 @@ The **actual Electron desktop shell** was also measured through `electron/main.c
 
 | Actual Electron workload              | Observed render fps | Render interval p95 (ms) | CPU render p95 (ms) | GPU timer p95 (ms) |
 | ------------------------------------- | ------------------: | -----------------------: | ------------------: | -----------------: |
-| Included sample STEP                     |              120.01 |                     8.90 |                0.30 |               1.11 |
+| Earlier sample assembly                  |              120.01 |                     8.90 |                0.30 |               1.11 |
 | Sample ×100                              |              120.00 |                     8.80 |                0.30 |               8.32 |
 | Sample ×10, separate geometry identities |              120.00 |                     9.30 |                0.30 |               4.03 |
 
