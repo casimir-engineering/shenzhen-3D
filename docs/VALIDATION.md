@@ -18,14 +18,25 @@ The STEP assembly regression verifies all triangle-to-face IDs, valid exact geom
 
 ## Sample assembly
 
-Fixture: `fixtures/sample-assembly.step`.
+Fixture: `fixtures/sample-assembly.step` (229,174 bytes), written by `node scripts/fixtures/make-sample-assembly.mjs`. The script writes the same bytes on every run. It is a 248 × 72 mm plate carrying 150 cell modules in three variants, four pin headers, fasteners and standoffs; cells contain nested pad and contact groups, so the tree is four levels deep and repeated parts share one geometry.
 
 | Property | Observed |
 | --- | ---: |
 | Declared unit | MM |
+| Assembly nodes | 3,815 |
+| Part nodes | 3,154 |
+| Mesh occurrences | 3,154 |
+| Unique geometries | 16 |
+| Unique triangles | 960 |
+| Rendered triangles across occurrences | 153,720 |
+| Nonidentity local transforms | 3,603 |
 | Invalid transforms | 0 |
+| Materials | 16 |
+| Geometries with source colors | 16 |
+| Core unique geometry buffers | 42,384 bytes |
+| World dimensions | 248.000 × 72.000 × 10.100 mm |
 
-The first compact benchmark measured 20 ms WASM startup and 2,314 ms STEP import. The later regression run measured 3,234 ms import while other build work was running. These are local observations, not platform-wide latency guarantees. Buffer bytes count positions, normals, triangle indices and face maps; they exclude edges, object overhead, exact kernel memory and GPU allocations.
+On an Apple M5 Max the kernel started in 18 ms and the import took 172 ms. These are local observations, not platform-wide latency guarantees. Buffer bytes count positions, normals, triangle indices and face maps; they exclude edges, object overhead, exact kernel memory and GPU allocations.
 
 Bounds are computed by multiplying ancestor and occurrence transforms, then transforming actual mesh vertices. Dimensions are checked to 0.001 mm. The difference between mesh occurrences and part nodes is expected: one part can reference several geometries.
 

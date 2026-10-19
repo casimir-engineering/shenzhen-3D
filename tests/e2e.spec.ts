@@ -413,7 +413,7 @@ test('production app reloads and imports STEP after the network goes offline', a
     await expect(page.getByRole('button', {name: 'Sample model', exact: true})).toBeVisible();
     await page.locator('input[type=file]').setInputFiles(fixture);
     await expect(page.locator('.model-badge')).toContainText('CAD model', {timeout: 120_000});
-    await expect(page.locator('.model-badge')).toContainText(' parts');
+    await expect(page.locator('.model-badge')).toContainText('3,154 parts');
     await expect(page.getByRole('alert')).toHaveCount(0);
   } finally {
     await context.setOffline(false);

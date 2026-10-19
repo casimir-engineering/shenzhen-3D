@@ -38,6 +38,6 @@ Production web builds include a generated service worker for offline use after t
 
 See [building and testing](docs/BUILDING.md), [platform requirements and current evidence](docs/PLATFORMS.md), [CAD/measurement validation](docs/VALIDATION.md), [format validation](docs/FORMAT_VALIDATION.md), and [third-party components](docs/THIRD_PARTY.md). Configured platform builds are not evidence that every platform has been packaged or tested on a device.
 
-The sample STEP assembly imports with shared geometries for its repeated parts. Local native macOS 0.1.2 import measured 3.02 seconds; device performance varies. The screenshot below shows an actual point measurement on that model.
+The included sample assembly, `fixtures/sample-assembly.step`, places 3,154 parts using 16 shared geometries. The screenshot below shows a point measurement on it.
 
-![Sample assembly with a 54.683 mm point measurement](docs/images/sample-assembly.png)
+![Sample assembly with a 78.351 mm point measurement](docs/images/sample-assembly.png)

@@ -100,8 +100,8 @@ try {
     if (filename === step) {
       expect(state.perspective).toBe(true);
       expect(state.near).toBeGreaterThanOrEqual(state.distance / 10001);
-      expect(state.parts).toBeGreaterThan(0);
-      expect(state.geometries).toBeGreaterThan(0);
+      expect(state.parts).toBe(3154);
+      expect(state.geometries).toBe(16);
     } else expect(state.perspective).toBe(false);
     await expect(page.getByRole("alert")).toHaveCount(0);
     await page.screenshot({ path: `${output}/${label}.png` });

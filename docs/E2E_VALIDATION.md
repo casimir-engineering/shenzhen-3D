@@ -52,7 +52,7 @@ The offline test waits for service worker installation and control, checks the a
 
 ## Scope
 
-These are functional browser interaction tests. They do not certify visual design, native file dialogs, signed application bundles, physical phone behavior, OS clipboard integration, or every supported import format. Chromium uses SwiftShader in headless runs, so timing is not a hardware performance benchmark.
+These are functional browser interaction tests. They do not certify visual design, native file dialogs, signed application bundles, physical phone behavior, OS clipboard integration, or every supported import format. Chromium uses SwiftShader in headless runs, so timing is not a hardware performance benchmark. The sample fixture imports 3,154 instances and 16 geometries.
 
 ## Recorded result
 

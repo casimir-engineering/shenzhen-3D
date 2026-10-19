@@ -139,7 +139,7 @@ try {
     throw new Error("GPU ray-traced image has insufficient visible variation");
   if (
     model === "sample" &&
-    (result.stats.instances < 1 || result.stats.geometryCount < 1)
+    (result.stats.instances !== 3154 || result.stats.geometryCount !== 16)
   )
     throw new Error("Sample assembly instancing was not preserved");
   const bytes = result.bytes;
