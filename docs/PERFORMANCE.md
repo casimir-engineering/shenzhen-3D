@@ -4,7 +4,7 @@ The optimized renderer sustained approximately **120 render submissions and anim
 
 Measurements were collected consecutively on this Mac: Apple M5 Max, 40 GPU cores, 64 GiB memory, macOS 26.5.1, Chromium 156.0.8078.4, ANGLE Metal (`Apple M5 Max`). Every case used a 1440×900 CSS viewport, DPR 2 and a **2880×1800 drawing buffer**. The idle browser schedule was approximately 120 Hz. Software rendering was rejected by the runner.
 
-The comparison uses baseline application source `7937fa8` and optimized renderer source `515e088`. The JSON records the viewer SHA-256 as well as the Git revision; no application source changed during the measured orbit windows. Baseline and current source used the same installed Three.js and the same browser.
+The comparison uses baseline application source `7937fa8` and optimized renderer source `515e088`, revisions in the history of `casimir-engineering/shenzhen-3D`. The JSON records the viewer SHA-256 as well as the Git revision; no application source changed during the measured orbit windows. Baseline and current source used the same installed Three.js and the same browser.
 
 | Workload                                     | Logical parts | Logical triangles | Baseline render fps | Optimized render fps | Draw calls, before → after |
 | -------------------------------------------- | ------------: | ----------------: | ------------------: | -------------------: | -------------------------: |
@@ -91,3 +91,44 @@ artifacts/perf/native-webkit-benchmark
 ```
 
 Set `PERF_CASES=1,100` to measure model scenarios in the standalone WebKit probe; the default captures capabilities and idle callback cadence only.
+
+## Large STEP assemblies
+
+STEP files of 16 MB or more are read product by product. The reference case is a large KiCad assembly (about 100 MB). Measurements below are on the same Apple M5 Max, Chromium 156 (Playwright, Metal) and Electron 44.7.2, 1440×1000 at DPR 2. Memory is the macOS physical footprint per process (`proc_pid_rusage`), which is what Activity Monitor reports; workers run inside the renderer process.
+
+### Why the file could not open
+
+The vendored kernel is a 32-bit WebAssembly build whose memory cannot grow past **2 GB** (`getHeapMax` = 2,147,483,648; a 4 GB build would need a rebuild of OpenCascade). Reading the whole file at once exhausts it while the STEP records are transferred into shapes, before any meshing: the kernel stops with "memory access out of bounds" after 14.4 s in Node, 20.5 s in Chromium and 28.6 s in Electron. The page's JavaScript heap stays at 6 MB, and the renderer peaks at 2,317 MB (Chromium) and 2,260 MB (Electron). Mesh precision does not matter: a 1 mm deflection fails the same way. Reading the 100 MB into JavaScript and handing it to the worker costs one 100 MB buffer and is not the problem.
+
+One product alone, a module's silkscreen written as tens of thousands of curve sets (about half of the file), needs 987 MB of kernel memory and produces no displayable geometry. With it removed, a whole-file read just fits in 2,048 MB of kernel memory and takes 31–43 s, with a 2,477 MB renderer.
+
+### What happens now
+
+1. A planning worker indexes the file as bytes (0.5–1.0 s; no string copy), reads the product/occurrence structure, and cuts each distinct product into a small standalone STEP file with its colours, sub-shape names and properties. Each piece becomes a Blob, the worker closes and the 100 MB source is freed. Curve-only products are not read; they appear as empty tree entries, exactly as before.
+2. Up to four short-lived kernel workers (two on phones and tablets, or with 4 GB of device memory or less) read the pieces in parallel. The largest pieces start first, one worker takes the smallest first so the board appears early, and a piece only starts while the workers' combined kernel memory stays within 640 MB. A worker that grew past 160 MB is replaced, and all of them close when loading ends.
+3. Results move to the page without copying and are joined into the same tree, node ids, names, single-precision placements, geometry order and colours that a whole-file read produces. Each distinct product is one geometry; its repeats are GPU instances.
+4. A first view appears about one second after reading starts and is refreshed every three seconds without moving the camera.
+5. Exact feature queries read a product's exact geometry the first time one of its faces, edges or vertices is queried, and keep it until the model closes. Measurements across two products use the kernel's cross-model queries. Almost every product reads in under 1 s; the slowest, a connector modelled as one large solid, takes about 9 s on first use.
+
+| Large KiCad assembly (about 100 MB) | Before | After |
+| --- | ---: | ---: |
+| Result | fails after 20.5 s | opens |
+| First view (Chromium) | — | 1.7 s (2.5 s median under load) |
+| Fully loaded (Chromium) | — | 9.3 s (15.3 s median under load) |
+| Renderer peak, Chromium | 2,317 MB | 945–1,008 MB |
+| Renderer after loading, Chromium | — | 486–495 MB |
+| Renderer peak / after loading, Electron | 2,260 MB / — | 916 MB / 341 MB |
+| Largest single kernel worker | 2,048 MB (limit) | 311 MB |
+| Zoom render rate, p95 interval | — | 120 fps, 9.1 ms |
+
+"Under load" is three consecutive runs while other work shared the machine; the quiet run is listed first. The model holds about 16 MB of mesh data; most of the renderer memory after loading is the viewer's picking, batching and edge structures. Electron timings include Playwright handing 100 MB to the page and are not comparable with Chromium's.
+
+| Other files | Before | After |
+| --- | --- | --- |
+| Generated 42.5 MB assembly (80 products, 646 parts) | fails after 19.5 s, 2,237 MB | 8.5 s, 719 MB peak, 365 MB after |
+| Large KiCad assembly without the curve-only product | 31.5 s, 2,477 MB peak, 2,355 MB after | 14.3 s under load, 1,021 MB peak, 496 MB after |
+| Earlier sample assembly (read whole, unchanged path) | 433 MB peak, 120 fps | 433 MB peak, 120 fps |
+
+Startup is unchanged: browser cold first contentful paint 128 → 112 ms and critical JavaScript 92,987 → 93,670 gzip bytes (median of three); Electron Open-ready 327 → 322 ms (median of five). The large-file code loads only when such a file is opened.
+
+`tests/step-split.test.ts` generates an assembly and requires that the part-by-part read stays within 64 MB of kernel memory while a whole read of the same file uses more than three times as much, that every repeat shares its product's geometry, and that the tree, placements, colours and exact face and cross-product measurements match a whole-file read. `npm run test:cad` checks the same equivalence on the sample fixture, and `tests/e2e-large-step.spec.ts` opens a generated 18 MB assembly in the app and runs exact face and distance queries.

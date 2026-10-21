@@ -134,9 +134,15 @@ window.rtReady = tracer.prepare(
   {
     sources,
     camera,
+    // Ambient intensity PI is environment radiance 1 (see ray-tracing-lighting.ts).
     lighting: sample
-      ? { uniform: true, intensity: 1 }
-      : { uniform: false, intensity: 3.2, ambient: 0.5, direction: [1, -2, 3] },
+      ? { ambient: { color: [1, 1, 1], intensity: Math.PI } }
+      : {
+          ambient: { color: [1, 1, 1], intensity: 0.5 * Math.PI },
+          directional: [
+            { direction: [1, -2, 3], color: [1, 1, 1], intensity: 3.2 },
+          ],
+        },
     background: new T.Color(0x182126),
   },
   { samples: 32, resolution: sample ? 1 : 0.5 },

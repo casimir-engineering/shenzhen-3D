@@ -9,6 +9,7 @@ import type {
   OcctJSExactElementKind,
 } from "../../vendor/occt/occt-js";
 import type { Pick } from "../core/types";
+import { bytesOf, readParams, resultTransfers } from "./kernel-io";
 let kernel: Promise<OcctJSModule> | undefined;
 const getKernel = (): Promise<OcctJSModule> =>
   (kernel ||= OcctFactory({ locateFile: () => wasmUrl }));
@@ -19,30 +20,35 @@ self.onmessage = async ({ data }) => {
     let result: unknown;
     if (action === "open") {
       const start = performance.now();
-      result = k.OpenExactModel(
+      const r = k.OpenExactModel(
         payload.format,
         new Uint8Array(payload.buffer),
-        {
-          linearUnit: "millimeter",
-          linearDeflectionType: "absolute_value",
-          linearDeflection:
-            payload.quality === "fine"
-              ? 0.01
-              : payload.quality === "fast"
-                ? 0.2
-                : 0.05,
-          angularDeflection: 0.3,
-          colorMode: "source",
-          readNames: true,
-          rootMode: "multiple-shapes",
-        },
+        readParams(payload.quality),
       );
-      const r =
-        result as import("../../vendor/occt/occt-js").OcctJSExactOpenResult;
       if (!r.success)
         throw new Error(r.error || "The CAD file could not be read.");
-      self.postMessage({ id, result, importMs: performance.now() - start });
+      self.postMessage(
+        { id, result: r, importMs: performance.now() - start },
+        resultTransfers(r),
+      );
       return;
+    }
+    if (action === "read") {
+      // One product of a large assembly: meshes and topology only.
+      const r = k.ReadStepFile(await bytesOf(payload.source), readParams(payload.quality));
+      if (!r.success) throw new Error(r.error || "The CAD file could not be read.");
+      self.postMessage(
+        { id, result: { ...r, memoryBytes: (k as unknown as { HEAPU8: Uint8Array }).HEAPU8.buffer.byteLength } },
+        resultTransfers(r),
+      );
+      return;
+    }
+    if (action === "openPart") {
+      // Exact geometry for one product, kept for feature queries.
+      const r = k.OpenExactModel("step", await bytesOf(payload.source), readParams(payload.quality));
+      if (!r.success || r.exactModelId === undefined)
+        throw new Error(r.error || "The CAD file could not be read.");
+      result = { exactModelId: r.exactModelId, bindings: r.exactGeometryBindings ?? [] };
     }
     if (action === "release") result = k.ReleaseExactModel(payload.modelId);
     if (action === "properties") {
@@ -82,25 +88,29 @@ self.onmessage = async ({ data }) => {
     if (action === "pair") {
       const a = payload.a as Pick,
         b = payload.b as Pick;
-      const args = [
-        payload.modelId,
-        a.exactHandle!,
-        a.kind as OcctJSExactElementKind,
-        a.elementId!,
-        b.exactHandle!,
-        b.kind as OcctJSExactElementKind,
-        b.elementId!,
-        a.matrix as OcctJSMatrix4,
-        b.matrix as OcctJSMatrix4,
-      ] as const;
-      const angle = k.MeasureExactAngle(...args);
+      const modelA = payload.modelId as number,
+        modelB = (payload.modelIdB ?? payload.modelId) as number;
+      const kindA = a.kind as OcctJSExactElementKind,
+        kindB = b.kind as OcctJSExactElementKind;
+      const ma = a.matrix as OcctJSMatrix4,
+        mb = b.matrix as OcctJSMatrix4;
+      let angle, distance, thickness, relation;
+      if (modelA === modelB) {
+        const args = [modelA, a.exactHandle!, kindA, a.elementId!, b.exactHandle!, kindB, b.elementId!, ma, mb] as const;
+        angle = k.MeasureExactAngle(...args);
+        distance = k.MeasureExactDistance(...args);
+        thickness = k.MeasureExactThickness(...args);
+        relation = k.ClassifyExactRelation(...args);
+      } else {
+        // Parts of a large assembly live in separate kernel models.
+        const args = [modelA, a.exactHandle!, kindA, a.elementId!, ma, modelB, b.exactHandle!, kindB, b.elementId!, mb] as const;
+        angle = k.MeasureExactAngleCrossModel(...args);
+        distance = k.MeasureExactDistanceCrossModel(...args);
+        thickness = k.MeasureExactThicknessCrossModel(...args);
+        relation = k.ClassifyExactRelationCrossModel(...args);
+      }
       if (angle.ok) angle.value = (angle.value * 180) / Math.PI;
-      result = {
-        distance: k.MeasureExactDistance(...args),
-        angle,
-        thickness: k.MeasureExactThickness(...args),
-        relation: k.ClassifyExactRelation(...args),
-      };
+      result = { distance, angle, thickness, relation };
     }
     self.postMessage({ id, result });
   } catch (error) {

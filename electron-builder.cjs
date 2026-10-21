@@ -18,6 +18,7 @@ module.exports = {
     validatePackagedFeed(
       context.packager.config.publish,
       provenance.releaseOwner,
+      provenance.releaseAccess,
     );
     verifyRuntimeArchive(
       path.join(
@@ -35,6 +36,13 @@ module.exports = {
         ),
       ),
     );
+    // Shenzhen Friends: the helper, animal set and notices staged by package-mac.mjs, signed before the app.
+    const { embedFriends } = require("./electron/friends/package.cjs");
+    await embedFriends(
+      path.join(context.appOutDir, `${module.exports.productName}.app`),
+      context.packager.projectDir,
+      { identity: context.packager.config.mac?.identity },
+    );
   },
   files: [
     "dist/**/*",
@@ -47,6 +55,8 @@ module.exports = {
     "!**/*.spec.cjs",
   ],
   asarUnpack: ["electron/native/*.node"],
+  // Friends links opened from their web page (docs/FRIENDS.md § Links).
+  protocols: [{ name: "Shenzhen Friends link", schemes: ["shenzhen3d"] }],
   extraResources: [
     {
       from: path.join(__dirname, "node_modules/electron/dist/LICENSE"),
@@ -267,6 +277,8 @@ module.exports = {
     },
     identity: "INTUITION Robotique & Technologies (66LJ4BV7Q3)",
     hardenedRuntime: true,
+    // The Friends helper is signed on its own in afterPack, never with the app's entitlements.
+    signIgnore: ["Contents/Helpers/Shenzhen Friends\\.app"],
     notarize: false,
   },
   dmg: {
@@ -281,11 +293,11 @@ module.exports = {
       { x: 550, y: 280, type: "link", path: "/Applications" },
     ],
   },
-  // Feed metadata is generated locally; the packaging command always uses --publish never.
+  // Feed metadata is generated locally; the packaging command always uses
+  // --publish never and sets the owner and whether its releases are private.
   publish: {
     provider: "github",
     repo: "shenzhen-3D",
-    private: true,
     channel: "latest",
   },
   artifactName: "Shenzhen-3D-${version}-Apple-Silicon.${ext}",

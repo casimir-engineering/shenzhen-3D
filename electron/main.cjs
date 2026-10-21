@@ -134,6 +134,19 @@ function queueOpenFiles(paths) {
     window.webContents.send("shenzhen-open-files-available");
   }
 }
+// Shenzhen Friends (docs/FRIENDS.md, electron/friends/launch.cjs): nothing of it loads before the first paint.
+const { setupFriends } = require("./friends/launch.cjs");
+const friends = setupFriends({
+  trusted,
+  associatedFormats,
+  queueOpenFiles,
+  rememberRecent: (paths, name, format) => {
+    recentFileStore ||= require("./recent-files.cjs").createRecentFileStore(
+      app.getPath("userData"),
+    );
+    return recentFileStore.remember(paths, name, format);
+  },
+});
 app.on("open-file", (event, file) => {
   event.preventDefault();
   queueOpenFiles([file]);
@@ -199,7 +212,7 @@ ipcMain.handle("shenzhen-recent-files", (event, method, value) => {
   if (
     event.senderFrame !== event.sender.mainFrame ||
     !trusted(event.senderFrame?.url) ||
-    !["list", "remember", "open", "remove", "touch"].includes(method)
+    !["list", "remember", "open", "paths", "remove", "touch"].includes(method)
   )
     throw Error("Recent file request is not allowed");
   recentFileStore ||= require("./recent-files.cjs").createRecentFileStore(
@@ -212,23 +225,27 @@ ipcMain.handle("shenzhen-recent-files", (event, method, value) => {
 function updates() {
   if (!updateManager) {
     const { createUpdateManager } = require("./update-manager.cjs");
-    const { resolveReleaseOwner } = require("./release-channel.cjs");
-    let releaseOwner;
+    const {
+      resolveReleaseOwner,
+      resolveReleaseAccess,
+    } = require("./release-channel.cjs");
+    let releaseOwner, releaseAccess;
     try {
-      releaseOwner = resolveReleaseOwner(
-        app.isPackaged
-          ? require(path.join(app.getAppPath(), "package.json"))
-          : {},
-        app.isPackaged,
-      );
+      const metadata = app.isPackaged
+        ? require(path.join(app.getAppPath(), "package.json"))
+        : {};
+      releaseOwner = resolveReleaseOwner(metadata, app.isPackaged);
+      if (releaseOwner) releaseAccess = resolveReleaseAccess(metadata);
     } catch {
       releaseOwner = null;
+      releaseAccess = undefined;
     }
     updateManager = createUpdateManager({
       app,
       safeStorage,
       dialog,
       releaseOwner,
+      releaseAccess,
       onState: (state) => {
         for (const window of BrowserWindow.getAllWindows()) {
           if (!window.isDestroyed() && trusted(window.webContents.getURL()))
@@ -335,6 +352,7 @@ function createWindow(url = entry) {
   );
   window.once("ready-to-show", () => {
     window.show();
+    friends.firstPaint();
     if (!updateTimer && app.isPackaged && process.platform === "darwin") {
       // No updater code, credentials or network on the first-paint path.
       updateTimer = setTimeout(() => updates().schedule(), 20_000);
@@ -435,6 +453,7 @@ app.whenReady().then(() => {
         ],
       },
       {
+        id: "file", // Friends adds Copy Download Link after Open… (electron/friends/share-menu.cjs)
         label: "File",
         submenu: [
           {
@@ -443,6 +462,7 @@ app.whenReady().then(() => {
             click: () => createWindow(),
           },
           {
+            id: "open",
             label: "Open…",
             accelerator: "CmdOrCtrl+O",
             click: () => command('input[type="file"]'),
@@ -453,6 +473,7 @@ app.whenReady().then(() => {
       },
       { role: "editMenu" },
       {
+        id: "view", // Friends adds View ▸ Friends at the top (electron/friends/view-menu.cjs)
         label: "View",
         submenu: [
           { role: "reload" },
@@ -486,6 +507,7 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 app.on("will-quit", () => {
+  friends.dispose();
   scrollSource?.dispose();
   clearTimeout(updateTimer);
   updateManager?.dispose();

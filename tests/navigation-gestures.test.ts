@@ -66,7 +66,7 @@ describe("wheel source discrimination", () => {
             mode,
             0,
           ),
-        ).toBe("pan");
+        ).toBe("swipe-zoom");
         expect(
           classifier.classify(
             sample(x, y, 0, false, { nativeSource: "wheel" }),
@@ -123,7 +123,7 @@ describe("wheel source discrimination", () => {
           "auto",
           0,
         ),
-      ).toBe("pan");
+      ).toBe("swipe-zoom");
   });
   it("uses non-discrete precision metadata for vertical, horizontal and diagonal browser scrolling regardless of old preferences", () => {
     for (const mode of ["auto", "mouse", "trackpad"] as const)
@@ -144,7 +144,7 @@ describe("wheel source discrimination", () => {
             mode,
             0,
           ),
-        ).toBe("pan");
+        ).toBe("swipe-zoom");
   });
   it("native source precedes browser delta modes and momentum hints", () => {
     expect(
@@ -153,7 +153,7 @@ describe("wheel source discrimination", () => {
         "auto",
         0,
       ),
-    ).toBe("pan");
+    ).toBe("swipe-zoom");
     expect(
       new WheelGestureClassifier().classify(
         sample(0, 0.25, 0, false, { nativeSource: "wheel", momentum: true }),
@@ -165,11 +165,11 @@ describe("wheel source discrimination", () => {
   it("switches native devices immediately without a sticky previous-gesture classification", () => {
     const classifier = new WheelGestureClassifier();
     for (const [index, event] of [
-      { source: "gesture", x: 0, y: 120, expected: "pan" },
+      { source: "gesture", x: 0, y: 120, expected: "swipe-zoom" },
       { source: "wheel", x: 0, y: 0.25, expected: "zoom" },
-      { source: "gesture", x: 37.5, y: 0, expected: "pan" },
+      { source: "gesture", x: 37.5, y: 0, expected: "swipe-zoom" },
       { source: "wheel", x: 0, y: 7, expected: "zoom" },
-      { source: "gesture", x: 8.5, y: 18.5, expected: "pan" },
+      { source: "gesture", x: 8.5, y: 18.5, expected: "swipe-zoom" },
     ].entries())
       expect(
         classifier.classify(
@@ -182,13 +182,15 @@ describe("wheel source discrimination", () => {
 });
 
 describe("fixed camera drag controls", () => {
-  it("always maps left and middle to pan and right to orbit, independent of old presets or modifiers", () => {
+  it("maps left and middle to pan and right to orbit (pan with Command or Ctrl), independent of old presets", () => {
     for (const style of legacyStyles)
       for (const m of modifiers)
         for (const is2D of [false, true]) {
           expect(pointerDrag(style, 0, m, is2D)).toBe("pan");
           expect(pointerDrag(style, 1, m, is2D)).toBe("pan");
-          expect(pointerDrag(style, 2, m, is2D)).toBe(is2D ? "pan" : "orbit");
+          expect(pointerDrag(style, 2, m, is2D)).toBe(
+            is2D || m.ctrlKey || m.metaKey ? "pan" : "orbit",
+          );
           expect(pointerDrag(style, 3, m, is2D)).toBe("none");
         }
   });

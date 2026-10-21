@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Shenzhen 3D",
-  "version": "0.1.9",
+  "version": "0.2.2",
   "identifier": "com.shenzhen3d.viewer",
   "build": {
     "frontendDist": "../dist",
@@ -225,5 +225,14 @@
         }
       }
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDAzREE1NTIyQTI4M0JDMDAKUldRQXZJT2lJbFhhQTl4UkJlUmNHMWVFRE5lRUFZRmhqVGJMNXVhVXVjcHFiMFYxV3RJTGhSSisK",
+      "requireSignedVersion": true,
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

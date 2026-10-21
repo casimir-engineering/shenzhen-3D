@@ -4,6 +4,7 @@ const { randomUUID } = require("node:crypto");
 const { execFile: defaultExecFile } = require("node:child_process");
 const {
   isReleaseOwner,
+  releaseAccessFor,
   validatePackagedFeed,
 } = require("./release-channel.cjs");
 
@@ -21,6 +22,11 @@ function createUpdateManager({
   platform = process.platform,
   fetch = globalThis.fetch,
   releaseOwner = null,
+  // "public" builds read releases without credentials; "private" builds need
+  // GitHub access connected in the app. Defaults to this source's setting.
+  releaseAccess = isReleaseOwner(releaseOwner)
+    ? releaseAccessFor(releaseOwner)
+    : "private",
   readPackagedFeed = async () =>
     require("js-yaml").load(
       await fs.readFile(
@@ -29,7 +35,10 @@ function createUpdateManager({
       ),
     ),
 }) {
-  const sourceConfigured = isReleaseOwner(releaseOwner);
+  const sourceConfigured =
+    isReleaseOwner(releaseOwner) &&
+    (releaseAccess === "public" || releaseAccess === "private");
+  const publicReleases = releaseAccess === "public";
   let supported = platform === "darwin" && !!app.isPackaged && sourceConfigured;
   const settingsFile = path.join(app.getPath("userData"), "updates.json");
   const state = {
@@ -38,13 +47,16 @@ function createUpdateManager({
     status: "idle",
     automatic: true,
     repository: sourceConfigured ? releaseOwner : "",
+    access: publicReleases ? "public" : "private",
     prereleases: true,
     connected: false,
     message: !sourceConfigured
       ? "Update source is not configured in this build."
-      : supported
-        ? "Connect GitHub to check private releases."
-        : "Updates are available in the installed Mac app.",
+      : !supported
+        ? "Updates are available in the installed Mac app."
+        : publicReleases
+          ? ""
+          : "Connect GitHub to check private releases.",
   };
   let token,
     encryptedToken,
@@ -100,7 +112,11 @@ function createUpdateManager({
   const initialized = (async () => {
     if (supported) {
       try {
-        validatePackagedFeed(await readPackagedFeed(), releaseOwner);
+        validatePackagedFeed(
+          await readPackagedFeed(),
+          releaseOwner,
+          releaseAccess,
+        );
       } catch {
         supported = false;
         publish({
@@ -125,8 +141,16 @@ function createUpdateManager({
         data.lastChecked >= 0
       )
         state.lastChecked = data.lastChecked;
-      if (!sameChannel) await persist();
-      if (sameChannel && supported && typeof data.encryptedToken === "string") {
+      // Public builds never read saved GitHub access; drop any left by an
+      // earlier private build of the same source without decrypting it.
+      if (!sameChannel || (publicReleases && "encryptedToken" in data))
+        await persist();
+      if (
+        sameChannel &&
+        supported &&
+        !publicReleases &&
+        typeof data.encryptedToken === "string"
+      ) {
         if (!secureStorage()) throw Error("secure storage unavailable");
         const decoded = safeStorage.decryptString(
           Buffer.from(data.encryptedToken, "base64"),
@@ -147,10 +171,11 @@ function createUpdateManager({
       if (error.code !== "ENOENT")
         publish({
           connected: false,
-          status: supported ? "needs-auth" : "idle",
-          message: supported
-            ? "Saved GitHub access could not be unlocked. Connect GitHub again."
-            : state.message,
+          status: supported && !publicReleases ? "needs-auth" : "idle",
+          message:
+            supported && !publicReleases
+              ? "Saved GitHub access could not be unlocked. Connect GitHub again."
+              : state.message,
         });
     }
   })();
@@ -191,9 +216,12 @@ function createUpdateManager({
     if (disposed) return;
     if (operation === "install") operation = undefined;
     const unauthorized =
-      error?.statusCode === 401 ||
-      error?.statusCode === 403 ||
-      /\b(?:401\s+Unauthorized|403\s+Forbidden)\b/i.test(error?.message || "");
+      !publicReleases &&
+      (error?.statusCode === 401 ||
+        error?.statusCode === 403 ||
+        /\b(?:401\s+Unauthorized|403\s+Forbidden)\b/i.test(
+          error?.message || "",
+        ));
     if (unauthorized) {
       token = encryptedToken = undefined;
       publish({
@@ -269,15 +297,24 @@ function createUpdateManager({
     }
     updater.allowPrerelease = state.prereleases;
     // Keep MacUpdater's native code-signature verification enabled and untouched.
-    updater.setFeedURL({
-      provider: "custom",
-      updateProvider: require("./github-update-provider.cjs")
-        .PrivateReleaseProvider,
-      owner: state.repository,
-      repo: "shenzhen-3D",
-      private: true,
-      token,
-    });
+    const providers = require("./github-update-provider.cjs");
+    updater.setFeedURL(
+      publicReleases
+        ? {
+            provider: "custom",
+            updateProvider: providers.PublicReleaseProvider,
+            owner: state.repository,
+            repo: "shenzhen-3D",
+          }
+        : {
+            provider: "custom",
+            updateProvider: providers.PrivateReleaseProvider,
+            owner: state.repository,
+            repo: "shenzhen-3D",
+            private: true,
+            token,
+          },
+    );
     return updater;
   };
   async function checkInternal(automatic = false) {
@@ -290,7 +327,7 @@ function createUpdateManager({
       state.lastChecked = Date.now();
       await persist();
       if (disposed) return getState();
-      if (!token) {
+      if (!publicReleases && !token) {
         publish({
           status: "needs-auth",
           connected: false,
@@ -317,7 +354,7 @@ function createUpdateManager({
     return getState();
   }
   async function connectToken(candidate) {
-    if (disposed || !supported) return getState();
+    if (disposed || !supported || publicReleases) return getState();
     if (!secureStorage()) {
       publish({
         status: "error",
@@ -421,7 +458,7 @@ function createUpdateManager({
     async download() {
       await initialized;
       if (disposed || operation || !supported) return getState();
-      if (!token) {
+      if (!publicReleases && !token) {
         publish({
           status: "needs-auth",
           connected: false,
@@ -540,7 +577,8 @@ function createUpdateManager({
         publish({
           ...clearAvailable(),
           connected: !!token,
-          status: supported && !token ? "needs-auth" : "idle",
+          status:
+            supported && !publicReleases && !token ? "needs-auth" : "idle",
           message: state.message,
         });
         if (scheduled) arm(20_000);
@@ -562,6 +600,7 @@ function createUpdateManager({
     async disconnect() {
       await initialized;
       mutable();
+      if (publicReleases) return getState();
       operation = "disconnect";
       try {
         token = encryptedToken = undefined;
@@ -582,7 +621,7 @@ function createUpdateManager({
     async useGitHubCLI() {
       await initialized;
       mutable();
-      if (!supported) return getState();
+      if (!supported || publicReleases) return getState();
       operation = "connect";
       try {
         let candidate;

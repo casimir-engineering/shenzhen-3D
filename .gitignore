@@ -15,3 +15,10 @@ public/licenses/
 public/THIRD_PARTY.txt
 
 *.tsbuildinfo
+
+# Shenzhen Friends: the pinned shenzhen-pdf checkout scripts/friends/setup-friends.sh fetches
+friends-src/
+.friends-setup.*/
+
+# Shenzhen Friends in the Tauri builds: the pinned checkout scripts/friends/setup-tauri-friends.mjs fetches
+friends-core-src/

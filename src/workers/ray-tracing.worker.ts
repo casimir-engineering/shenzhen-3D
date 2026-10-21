@@ -6,6 +6,10 @@ import {
   traceResourceEstimate,
   unpackTraceRgba8,
 } from "../core/ray-tracing-types";
+import {
+  buildEnvironment,
+  inverseAcesFilmic,
+} from "../core/ray-tracing-lighting";
 import type {
   RayTracingSettings,
   TraceCamera,
@@ -236,8 +240,10 @@ self.onmessage = async ({ data }) => {
           reason: `Ray-tracing GPU device lost: ${info.message || info.reason}`,
         });
       });
+      // Same output transform as the raster viewer.
+      const exposure = 1.35;
       renderer.toneMapping = T.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.35;
+      renderer.toneMappingExposure = exposure;
       const textures = snapshot.textures.map((dto) => {
         const texture = dto.data
           ? new T.DataTexture(
@@ -301,7 +307,27 @@ self.onmessage = async ({ data }) => {
         });
       }
       scene = new T.Scene();
-      scene.background = new T.Color().fromArray(snapshot.background);
+      // Raster shows its plain background without tone mapping; pre-invert the
+      // trace's tone mapping so both views show the same background colour. A
+      // half-float texel keeps dark values that an 8-bit colour would round off.
+      const background = new T.DataTexture(
+        new Uint16Array([
+          ...inverseAcesFilmic(snapshot.background, exposure).map((v) =>
+            T.DataUtils.toHalfFloat(v),
+          ),
+          T.DataUtils.toHalfFloat(1),
+        ]),
+        1,
+        1,
+        T.RGBAFormat,
+        T.HalfFloatType,
+      );
+      background.mapping = T.EquirectangularReflectionMapping;
+      // The tracer samples both maps with filtering samplers.
+      background.minFilter = T.LinearFilter;
+      background.magFilter = T.LinearFilter;
+      background.needsUpdate = true;
+      scene.background = background;
       for (const dto of snapshot.objects) {
         const geometry = geometries[dto.geometry],
           mesh = new T.InstancedMesh(
@@ -318,21 +344,17 @@ self.onmessage = async ({ data }) => {
         mesh.matrixAutoUpdate = false;
         scene.add(mesh);
       }
+      // Ambient and hemisphere lights become an equivalent environment
+      // (radiance = irradiance / PI); directional lights stay directional.
       const lighting = snapshot.lighting,
-        ambient = lighting.uniform
-          ? (lighting.intensity ?? 1)
-          : (lighting.ambient ?? 0.5),
-        environmentData = new Uint16Array(8 * 4 * 4);
-      for (let i = 0; i < 8 * 4; i++) {
-        environmentData[i * 4] = T.DataUtils.toHalfFloat(ambient);
-        environmentData[i * 4 + 1] = T.DataUtils.toHalfFloat(ambient);
-        environmentData[i * 4 + 2] = T.DataUtils.toHalfFloat(ambient);
-        environmentData[i * 4 + 3] = T.DataUtils.toHalfFloat(1);
-      }
+        radiance = buildEnvironment(lighting),
+        environmentData = new Uint16Array(radiance.data.length);
+      for (let i = 0; i < radiance.data.length; i++)
+        environmentData[i] = T.DataUtils.toHalfFloat(radiance.data[i]);
       const environment = new T.DataTexture(
         environmentData,
-        8,
-        4,
+        radiance.width,
+        radiance.height,
         T.RGBAFormat,
         T.HalfFloatType,
       );
@@ -341,15 +363,13 @@ self.onmessage = async ({ data }) => {
       environment.magFilter = T.LinearFilter;
       environment.needsUpdate = true;
       scene.environment = environment;
-      if (!lighting.uniform) {
+      for (const dto of lighting.directional ?? []) {
+        if (!(dto.intensity > 0)) continue;
         const light = new T.DirectionalLight(
-          new T.Color().fromArray(lighting.color ?? [1, 1, 1]),
-          lighting.intensity ?? 3.2,
+          new T.Color().fromArray(dto.color),
+          dto.intensity,
         );
-        light.position
-          .fromArray(lighting.direction ?? [1, -2, 3])
-          .normalize()
-          .multiplyScalar(10);
+        light.position.fromArray(dto.direction).normalize().multiplyScalar(10);
         scene.add(light, light.target);
       }
       tracer = new WebGPUPathTracer(renderer);

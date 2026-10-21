@@ -6,6 +6,7 @@ import { analyzeMeshFeature } from "./mesh-features";
 import { createId } from "./id";
 import {
   WheelGestureClassifier,
+  swipeZoomStep,
   pointerDrag,
   orbitMouseAction,
   type NavigationMode,
@@ -20,6 +21,13 @@ import {
   layoutMeasurementLabels,
 } from "./measurement-overlay";
 import { createInstancedEdges } from "./gpu-edges";
+import { clippingRange } from "./view-clipping";
+import {
+  PartHighlight,
+  SelectionMarker,
+  type HighlightEntry,
+} from "./part-highlight";
+import { CameraGlide } from "./camera-glide";
 import { ScenePickingIndex } from "./scene-picking";
 import { createRenderBatches, type RenderBatches } from "./render-batches";
 import { createNavigationLods, type NavigationLod } from "./navigation-lod";
@@ -32,6 +40,7 @@ import type {
   ProgressiveRayTracer,
   RayTracingState,
 } from "./progressive-ray-tracer";
+import type { RayTracingLighting } from "./ray-tracing-types";
 import type {
   ModelDocument,
   Part,
@@ -108,9 +117,10 @@ export class Viewer {
   private materials: T.Material[] = [];
   private edgeObjects: T.LineSegments[] = [];
   private edgeSets = new Map<string, T.LineSegments[]>();
+  private hemisphereLight = new T.HemisphereLight(0xe9f5ff, 0x64727a, 2.6);
   private keyLight = new T.DirectionalLight(0xffffff, 3.2);
+  private rimLight = new T.DirectionalLight(0xb3d5ff, 1.5);
   private uniformLight = new T.AmbientLight(0xffffff, 0);
-  private lightDirection = new T.Vector3(1, -2, 3).normalize();
   private rayTracer?: ProgressiveRayTracer;
   private rayTraceAbort?: AbortController;
   private rayTraceTimer = 0;
@@ -129,6 +139,7 @@ export class Viewer {
   private hoverEvent?: PointerEvent;
   private pointerStart?: { x: number; y: number; time: number; moved: boolean };
   private pendingPick?: Pick;
+  private pendingMiss = false;
   private activePointers = new Set<number>();
   private gesture = false;
   private lastHoverKey = "";
@@ -154,8 +165,22 @@ export class Viewer {
   }));
   private labelMeasureDirty = true;
   private wheelGestures = new WheelGestureClassifier();
+  private ctrlHeld = false;
+  private trackControl = (event: KeyboardEvent | FocusEvent) => {
+    this.ctrlHeld = "ctrlKey" in event && event.ctrlKey;
+  };
   private hoveredPartId?: string;
   private normalFaceKey?: string;
+  private clipCenter = new T.Vector3();
+  private partHighlight = new PartHighlight();
+  private selectedPartIds: string[] = [];
+  private selectionBounds = new T.Box3();
+  private selectionMarker: SelectionMarker;
+  private glide = new CameraGlide((delta) => {
+    this.camera.position.add(delta);
+    this.controls.target.add(delta);
+    this.controls.update();
+  });
   private overlayData: OverlayData = { points: [] };
   private markers: T.Mesh[] = [];
   private mode: SelectionMode = "point";
@@ -176,6 +201,8 @@ export class Viewer {
     reverseWheelZoom: false,
   };
   onPick?: (pick: Pick) => void;
+  /** A click that hit no model geometry. */
+  onMiss?: () => void;
   onHover?: (text: string) => void;
   onNavigationDetail?: (active: boolean) => void;
   onViewChanged?: () => void;
@@ -203,20 +230,20 @@ export class Viewer {
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(100, -120, 100);
     this.controls = this.makeControls();
-    this.scene.add(new T.HemisphereLight(0xe9f5ff, 0x64727a, 2.6));
+    this.scene.add(this.hemisphereLight);
     const key = this.keyLight;
     key.position.set(1, -2, 3);
     this.scene.add(key);
     this.uniformLight.visible = false;
     this.scene.add(key.target, this.uniformLight);
-    const rim = new T.DirectionalLight(0xb3d5ff, 1.5);
-    rim.position.set(-2, 1, 1);
-    this.scene.add(rim);
+    this.rimLight.position.set(-2, 1, 1);
+    this.scene.add(this.rimLight);
     this.scene.add(
       this.content,
       this.overlay,
       this.hoverGroup,
       this.selection,
+      this.partHighlight.group,
       this.grid,
     );
     this.grid.rotation.x = Math.PI / 2;
@@ -239,6 +266,7 @@ export class Viewer {
       host.appendChild(label);
       this.axisLabels.push(label);
     }
+    this.selectionMarker = new SelectionMarker(host);
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
     const canvas = this.renderer.domElement;
@@ -254,6 +282,9 @@ export class Viewer {
       passive: false,
       capture: true,
     });
+    window.addEventListener("keydown", this.trackControl, true);
+    window.addEventListener("keyup", this.trackControl, true);
+    window.addEventListener("blur", this.trackControl);
     canvas.addEventListener("webglcontextlost", this.contextLost);
     canvas.addEventListener("webglcontextrestored", this.contextRestored);
     this.unsubscribeRotation = window.shenzhenScroll?.subscribeRotate?.(
@@ -327,6 +358,7 @@ export class Viewer {
       this.controls.mouseButtons[key] = this.mouseAction(event.button, event);
   };
   private cameraChanged = () => {
+    this.syncClipping();
     this.navigationUntil = performance.now() + 180;
     window.clearTimeout(this.navigationTimer);
     this.navigationTimer = window.setTimeout(this.invalidate, 190);
@@ -390,6 +422,13 @@ export class Viewer {
       for (let axis = 0; axis < 3; axis++)
         this.applyLabelPosition(this.axisLabels[axis], axis + 1);
     }
+    this.selectionMarker.place(
+      this.selectionBounds,
+      this.camera,
+      this.host.clientWidth,
+      this.host.clientHeight,
+      this.options.theme,
+    );
     this.renderScene(!!this.rayTracer?.imageVisible && !this.rayTraceMoving);
     this.onStats?.({
       calls: this.renderer.info.render.calls,
@@ -426,7 +465,27 @@ export class Viewer {
     label.style.left = layout.x + layout.width / 2 + "px";
     label.style.top = layout.y + layout.height * 1.5 + "px";
   }
+  /** Depth range follows the current pose; see view-clipping.ts. */
+  private syncClipping() {
+    const camera = this.camera;
+    camera.updateMatrixWorld();
+    const center = this.clipCenter
+      .copy(this.center)
+      .applyMatrix4(camera.matrixWorldInverse);
+    const { near, far } = clippingRange({
+      orthographic: camera instanceof T.OrthographicCamera,
+      viewDistance: camera.position.distanceTo(this.controls.target),
+      centerDistance: center.length(),
+      centerDepth: -center.z,
+      radius: this.radius,
+    });
+    if (camera.near === near && camera.far === far) return;
+    camera.near = near;
+    camera.far = far;
+    camera.updateProjectionMatrix();
+  }
   private renderScene(overlaysOnly: boolean) {
+    this.syncClipping();
     if (!overlaysOnly) {
       this.renderer.render(this.scene, this.camera);
       return;
@@ -473,6 +532,7 @@ export class Viewer {
     };
   }
   focusPick(pick: Pick) {
+    this.glide.cancel();
     const matrix = this.partDisplay.get(pick.partId);
     if (!matrix) return;
     const point = new T.Vector3()
@@ -547,6 +607,35 @@ export class Viewer {
         resolution: this.options.rayResolution ?? 0.5,
       });
   }
+  /** The raster lights, read from the lights themselves so a trace matches them. */
+  private traceLighting(): RayTracingLighting {
+    const rgb = (light: T.Light, color = light.color) =>
+      color.toArray() as Vec3;
+    const directional = (light: T.DirectionalLight) => ({
+      direction: light.position
+        .clone()
+        .sub(light.target.position)
+        .normalize()
+        .toArray() as Vec3,
+      color: rgb(light),
+      intensity: light.visible ? light.intensity : 0,
+    });
+    const hemisphere = this.hemisphereLight,
+      ambient = this.uniformLight;
+    return {
+      hemisphere: {
+        up: hemisphere.position.clone().normalize().toArray() as Vec3,
+        sky: rgb(hemisphere),
+        ground: rgb(hemisphere, hemisphere.groundColor),
+        intensity: hemisphere.visible ? hemisphere.intensity : 0,
+      },
+      ambient: {
+        color: rgb(ambient),
+        intensity: ambient.visible ? ambient.intensity : 0,
+      },
+      directional: [this.keyLight, this.rimLight].map(directional),
+    };
+  }
   private async prepareRayTracing(generation: number, signal: AbortSignal) {
     try {
       const { ProgressiveRayTracer } = await import("./progressive-ray-tracer");
@@ -574,14 +663,7 @@ export class Viewer {
           sources: [...this.batches.values()],
           camera: this.camera,
           background: this.scene.background as T.Color,
-          lighting: {
-            // The UI's uniform light adds fill while keeping the movable key.
-            uniform: false,
-            intensity: this.keyLight.intensity,
-            ambient: 2.6 + this.uniformLight.intensity,
-            direction: this.lightDirection.toArray() as Vec3,
-            color: [1, 1, 1],
-          },
+          lighting: this.traceLighting(),
         },
         {
           samples: this.options.raySamples ?? 128,
@@ -703,7 +785,8 @@ export class Viewer {
     this.snap = snap;
     this.invalidate();
   }
-  setModel(doc: ModelDocument) {
+  /** `keepView` keeps the camera when a loading assembly gains parts. */
+  setModel(doc: ModelDocument, keepView = false) {
     this.clearModel();
     this.model = doc;
     this.bounds.makeEmpty();
@@ -790,16 +873,21 @@ export class Viewer {
     this.applyNavigationBindings();
     this.transformsDirty = true;
     this.applyOptions(this.options);
-    if (doc.is2D) {
+    if (keepView) this.invalidate();
+    else if (doc.is2D) {
       this.setProjection(true);
       this.preset("top");
     } else {
       this.preset("iso");
     }
-    this.fit();
+    if (!keepView) this.fit();
     this.prepareNavigationDetail();
   }
   clearModel() {
+    this.glide.cancel();
+    this.selectedPartIds = [];
+    this.selectionBounds.makeEmpty();
+    this.partHighlight.clear();
     this.hoveredPartId = undefined;
     this.normalFaceKey = undefined;
     this.cancelRayTracing();
@@ -843,24 +931,77 @@ export class Viewer {
     if (!this.model) return;
     let bounds = this.bounds;
     if (partId) {
-      const ids = Array.isArray(partId) ? partId : [partId];
-      const selectedBounds = new T.Box3();
-      for (const id of ids) {
-        const p = this.parts.get(id);
-        if (p) {
-          const g = this.model.geometries.get(p.geometryId)!;
-          selectedBounds.union(
-            g.geometry
-              .boundingBox!.clone()
-              .applyMatrix4(this.partDisplay.get(id)!),
-          );
-        }
-      }
+      const selectedBounds = this.partBounds(
+        Array.isArray(partId) ? partId : [partId],
+      );
       if (!selectedBounds.isEmpty()) bounds = selectedBounds;
     }
     this.fitBounds(bounds);
   }
+  private partBounds(ids: string[], visibleOnly = false) {
+    const bounds = new T.Box3();
+    for (const id of ids) {
+      const p = this.parts.get(id);
+      if (!p || (visibleOnly && this.options.hidden.has(id))) continue;
+      const g = this.model?.geometries.get(p.geometryId);
+      if (!g?.geometry.boundingBox) continue;
+      bounds.union(
+        g.geometry.boundingBox.clone().applyMatrix4(this.partDisplay.get(id)!),
+      );
+    }
+    return bounds;
+  }
+  /** Pans so the parts' center is the view center; distance, zoom and orientation stay. */
+  centerOnParts(ids: string[], animate = true) {
+    if (!this.model) return;
+    let bounds = this.partBounds(ids, true);
+    if (bounds.isEmpty()) bounds = this.partBounds(ids);
+    if (bounds.isEmpty()) return;
+    const offset = bounds.getCenter(new T.Vector3()).sub(this.controls.target);
+    const still =
+      !animate ||
+      globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    this.glide.start(offset, still ? 0 : undefined);
+  }
+  /** Emphasizes whole parts, independent of point and feature picks. */
+  selectParts(ids: string[]) {
+    this.selectedPartIds = [...ids];
+    this.refreshPartHighlight();
+  }
+  private refreshPartHighlight() {
+    this.selectionBounds = this.partBounds(this.selectedPartIds, true);
+    if (!this.model || !this.selectedPartIds.length) {
+      if (this.partHighlight.size) this.partHighlight.clear();
+      this.invalidate();
+      return;
+    }
+    const entries = new Map<string, HighlightEntry>();
+    for (const id of this.selectedPartIds) {
+      const part = this.parts.get(id),
+        matrix = this.partDisplay.get(id);
+      const data = part && this.model.geometries.get(part.geometryId);
+      if (!data || !matrix || this.options.hidden.has(id)) continue;
+      let entry = entries.get(data.id);
+      if (!entry)
+        entries.set(
+          data.id,
+          (entry = {
+            geometry: data.geometry,
+            lines: !!data.lines,
+            matrices: [],
+          }),
+        );
+      entry.matrices.push(matrix);
+    }
+    this.partHighlight.update(
+      [...entries.values()],
+      this.options.theme,
+      this.options.section ? [this.sectionPlane] : [],
+    );
+    this.invalidate();
+  }
   private fitBounds(bounds: T.Box3) {
+    this.glide.cancel();
     if (bounds.isEmpty()) return;
     if (bounds.getSize(new T.Vector3()).lengthSq() === 0) {
       const offset = this.camera.position.clone().sub(this.controls.target),
@@ -907,8 +1048,6 @@ export class Viewer {
           ),
         ) * 1.18;
       this.camera.position.copy(center).addScaledVector(dir, distance);
-      this.camera.near = Math.max(distance / 10000, 0.00001);
-      this.camera.far = Math.max(distance * 100, 1000);
     } else {
       const h =
         Math.max(
@@ -923,10 +1062,9 @@ export class Viewer {
       this.camera.bottom = -h;
       this.camera.zoom = 1;
       this.camera.position.copy(center).addScaledVector(dir, r * 4);
-      this.camera.near = 0.00001;
-      this.camera.far = Math.max(r * 100, 1000);
     }
     this.controls.target.copy(center);
+    this.syncClipping();
     this.camera.updateProjectionMatrix();
     this.controls.update();
     this.invalidate();
@@ -1032,6 +1170,7 @@ export class Viewer {
   }
   /** Aligns to a planar selected face; a repeated aligned command views its reverse side. */
   normalToFace(pick: Pick): boolean {
+    this.glide.cancel();
     if (pick.kind !== "face") return false;
     const bounds = new T.Box3(),
       a = new T.Vector3(),
@@ -1095,6 +1234,7 @@ export class Viewer {
       : undefined;
   }
   preset(view: "iso" | "top" | "front" | "right" | "bottom" | "back" | "left") {
+    this.glide.cancel();
     const dirs = {
       iso: [1, -1, 1],
       top: [0, 0, 1],
@@ -1193,14 +1333,12 @@ export class Viewer {
         MEASUREMENT_AXIS_COLORS[options.theme][line.userData.axis],
       );
     this.grid.visible = options.grid;
-    this.lightDirection.copy(
-      updateViewerLighting(
-        this.keyLight,
-        this.uniformLight,
-        this.center,
-        this.radius,
-        options,
-      ),
+    updateViewerLighting(
+      this.keyLight,
+      this.uniformLight,
+      this.center,
+      this.radius,
+      options,
     );
     const axis = AXES[options.sectionAxis];
     const min = this.bounds.isEmpty()
@@ -1285,6 +1423,7 @@ export class Viewer {
       }
       this.renderBatches?.syncMaterials();
       this.applyEdgeStyle();
+      if (this.selectedPartIds.length) this.refreshPartHighlight();
     }
     this.updateRayTracing(
       traceSceneChanged,
@@ -1730,6 +1869,7 @@ export class Viewer {
   private down = (event: PointerEvent) => {
     this.cancelHover();
     this.pendingPick = undefined;
+    this.pendingMiss = false;
     this.activePointers.add(event.pointerId);
     this.syncRayTraceActivity();
     if (this.activePointers.size > 1) this.gesture = true;
@@ -1755,16 +1895,21 @@ export class Viewer {
     )
       return;
     this.pendingPick = this.pick(event);
+    this.pendingMiss = !this.pendingPick;
   };
   private click = () => {
     // Open the inspector after the compatibility click targets the canvas.
     // Opening on pointerup lets touch clicks land on the new sheet beneath them.
-    const pick = this.pendingPick;
+    const pick = this.pendingPick,
+      miss = this.pendingMiss;
     this.pendingPick = undefined;
+    this.pendingMiss = false;
     if (pick) this.onPick?.(pick);
+    else if (miss) this.onMiss?.();
   };
   private cancelPointer = (event: PointerEvent) => {
     this.pendingPick = undefined;
+    this.pendingMiss = false;
     this.activePointers.delete(event.pointerId);
     this.syncRayTraceActivity();
     this.pointerStart = undefined;
@@ -1878,30 +2023,47 @@ export class Viewer {
     this.controls.update();
   }
   private wheel = (event: WheelEvent) => {
-    if (
-      this.wheelGestures.classify(
-        {
-          deltaX: event.deltaX,
-          deltaY: event.deltaY,
-          deltaMode: event.deltaMode,
-          ctrlKey: event.ctrlKey,
-          wheelDeltaX: (event as WheelEvent & { wheelDeltaX?: number })
-            .wheelDeltaX,
-          wheelDeltaY: (event as WheelEvent & { wheelDeltaY?: number })
-            .wheelDeltaY,
-          momentum: (event as WheelEvent & { momentum?: boolean }).momentum,
-          devicePixelRatio: window.devicePixelRatio,
-          nativeSource:
-            event.isTrusted && !event.ctrlKey
-              ? window.shenzhenScroll?.source(
-                  performance.timeOrigin + event.timeStamp,
-                )
-              : null,
-        },
-        "auto",
-        performance.now(),
-      ) === "pan"
-    ) {
+    const action = this.wheelGestures.classify(
+      {
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        deltaMode: event.deltaMode,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        ctrlHeld: this.ctrlHeld,
+        wheelDeltaX: (event as WheelEvent & { wheelDeltaX?: number })
+          .wheelDeltaX,
+        wheelDeltaY: (event as WheelEvent & { wheelDeltaY?: number })
+          .wheelDeltaY,
+        momentum: (event as WheelEvent & { momentum?: boolean }).momentum,
+        devicePixelRatio: window.devicePixelRatio,
+        nativeSource:
+          event.isTrusted && (!event.ctrlKey || this.ctrlHeld)
+            ? window.shenzhenScroll?.source(
+                performance.timeOrigin + event.timeStamp,
+              )
+            : null,
+      },
+      "auto",
+      performance.now(),
+    );
+    if (action === "swipe-zoom") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!this.controls.enabled || !this.controls.enableZoom) return;
+      const step = swipeZoomStep(
+        event.deltaY,
+        event.deltaMode,
+        this.host.clientHeight,
+        this.controls.zoomSpeed,
+      );
+      if (step)
+        step.out
+          ? this.controls.dollyOut(step.scale)
+          : this.controls.dollyIn(step.scale);
+      return;
+    }
+    if (action === "pan") {
       event.preventDefault();
       event.stopImmediatePropagation();
       const scale =
@@ -1975,6 +2137,9 @@ export class Viewer {
   }
   dispose() {
     this.disposed = true;
+    window.removeEventListener("keydown", this.trackControl, true);
+    window.removeEventListener("keyup", this.trackControl, true);
+    window.removeEventListener("blur", this.trackControl);
     this.unsubscribeRotation?.();
     cancelAnimationFrame(this.rotationFrame);
     this.pendingRotation = 0;
@@ -1991,5 +2156,7 @@ export class Viewer {
     this.renderer.domElement.remove();
     this.label.remove();
     for (const label of this.axisLabels) label.remove();
+    this.selectionMarker.dispose();
+    this.glide.cancel();
   }
 }

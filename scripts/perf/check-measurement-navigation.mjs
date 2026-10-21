@@ -102,6 +102,13 @@ const drag = async (
   keys = [],
   { dx = 60, dy = 35, releaseAfterPress = false, pressAfterDown = [] } = {},
 ) => {
+  await page.evaluate(() => {
+    if (window.__contextMenus) return;
+    window.__contextMenus = [];
+    window.addEventListener("contextmenu", (e) =>
+      window.__contextMenus.push(e.defaultPrevented),
+    );
+  });
   await page.mouse.move(500, 350);
   for (const key of keys) await page.keyboard.down(key);
   await page.mouse.down({ button });
@@ -116,6 +123,16 @@ const drag = async (
       await page.keyboard.up(key);
   }
   await settle();
+  // A right or Ctrl+click drag must never open the browser's context menu.
+  const menus = await page.evaluate(() => {
+    const seen = window.__contextMenus || [];
+    window.__contextMenus = [];
+    return seen;
+  });
+  check(
+    menus.every(Boolean),
+    `${button}+${keys.join("+") || "plain"} drag: context menu is suppressed`,
+  );
   return state();
 };
 const wheel = async (event) => {
@@ -168,8 +185,13 @@ try {
             (initial) => window.measurementNavigation.restore(initial),
             initial,
           );
-          const action =
-            is2D && binding.action === "orbit" ? "pan" : binding.action;
+          // Command or Ctrl held when a right drag starts turns it into a pan.
+          const wanted =
+            binding.button === "right" &&
+            (keys.includes("Control") || keys.includes("Meta"))
+              ? "pan"
+              : binding.action;
+          const action = is2D && wanted === "orbit" ? "pan" : wanted;
           const after = await drag(binding.button, keys);
           const name = `${mode} ${keys.join("+") || "plain"}+${binding.button}`;
           assertAction(initial, after, action, name);
@@ -216,9 +238,15 @@ try {
           assertAction(
             initial,
             after,
-            "pan",
-            `${mode} saved=${legacy} precision/momentum ${event.deltaX}/${event.deltaY}: pans`,
+            event.deltaY === 0 ? "none" : "zoom",
+            `${mode} saved=${legacy} precision/momentum ${event.deltaX}/${event.deltaY}: zooms (vertical only)`,
           );
+          if (event.deltaY !== 0)
+            check(
+              Math.sign(zoomChange(initial, after)) ===
+                -Math.sign(event.deltaY),
+              `${mode}: swipe zoom direction follows the wheel`,
+            );
           wheelResponses.push({
             mode,
             legacy,
@@ -226,6 +254,23 @@ try {
             ...event,
             amount: zoomChange(initial, after),
           });
+          for (const key of ["metaKey", "ctrlKey"]) {
+            await page.evaluate(
+              (initial) => window.measurementNavigation.restore(initial),
+              initial,
+            );
+            if (key === "ctrlKey") await page.keyboard.down("Control");
+            const held = await wheel({ ...event, [key]: true });
+            if (key === "ctrlKey") await page.keyboard.up("Control");
+            // A held swipe ends once its inertia has stopped.
+            await page.waitForTimeout(150);
+            assertAction(
+              initial,
+              held,
+              "pan",
+              `${mode} saved=${legacy} ${key} + precision ${event.deltaX}/${event.deltaY}: pans`,
+            );
+          }
         }
         for (const deltaY of [-2, 2]) {
           const initial = await reset(is2D, orthographic, {
@@ -304,9 +349,22 @@ try {
     assertAction(
       trackpad,
       swiped,
-      "pan",
-      "Precision DOM wheel sample pans without zoom",
+      "zoom",
+      "Precision DOM wheel sample zooms without panning",
     );
+    await page.evaluate(
+      (initial) => window.measurementNavigation.restore(initial),
+      trackpad,
+    );
+    const swipedPan = await wheel({
+      deltaX: -8.5,
+      deltaY: -18.5,
+      deltaMode: 0,
+      wheelDeltaX: 25.5,
+      wheelDeltaY: 55.5,
+      metaKey: true,
+    });
+    await page.waitForTimeout(150);
     await page.evaluate(
       (initial) => window.measurementNavigation.restore(initial),
       trackpad,
@@ -316,8 +374,8 @@ try {
       dy: -event.deltaY,
     });
     check(
-      close(middle.position, swiped.position) &&
-        close(middle.target, swiped.target),
+      close(middle.position, swipedPan.position) &&
+        close(middle.target, swipedPan.target),
       "Middle-button pan matches oppositely signed precision scrolling",
     );
     const horizontal = await reset(false, orthographic, {
@@ -358,8 +416,20 @@ try {
     {
       button: "right",
       keys: [],
-      pressAfterDown: ["Shift", "Control"],
+      pressAfterDown: ["Shift", "Control", "Meta"],
       expected: "orbit",
+    },
+    {
+      button: "right",
+      keys: ["Meta"],
+      releaseAfterPress: true,
+      expected: "pan",
+    },
+    {
+      button: "right",
+      keys: ["Control"],
+      releaseAfterPress: true,
+      expected: "pan",
     },
   ]) {
     const initial = await reset(false, false);
@@ -375,15 +445,15 @@ try {
     for (const orthographic of [false, true]) {
       await reset(is2D, orthographic);
       for (const item of [
-        { event: precisionWheelCases[2], action: "pan" },
+        { event: precisionWheelCases[2], action: "zoom" },
         { event: discreteWheelCases[1], action: "zoom" },
-        { event: precisionWheelCases[10], action: "pan" },
+        { event: precisionWheelCases[10], action: "none" },
         {
           event: { deltaX: 0, deltaY: -2, deltaMode: 0, ctrlKey: true },
           action: "zoom",
         },
         { event: discreteWheelCases[4], action: "zoom" },
-        { event: precisionWheelCases[11], action: "pan" },
+        { event: precisionWheelCases[11], action: "zoom" },
       ]) {
         const before = await state();
         const after = await wheel(item.event);

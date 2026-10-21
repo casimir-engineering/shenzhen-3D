@@ -48,3 +48,11 @@ node tests/startup-browser.mjs --dist=dist --label=current --port=1437 --expect-
 The script owns and closes its static server and browsers. `--runs=3` is the default; `--output=...` selects a record path, and `--screenshot=artifacts/startup/welcome.png` captures the welcome page after all timing checkpoints. Use a quiet CPU/GPU window with visible browser windows. Responses use gzip level 9 and an empty browser HTTP/SW cache for each cold repetition. Warm and offline cases retain the previous installation. Browser paint, ready markers, resource sizes, all HTTP requests and cache contents remain separate in the JSON.
 
 `--expect-lazy` rejects an initial page graph above 350,000 decoded JavaScript bytes or 120,000 gzip JavaScript bytes, any preinteraction WASM request, or an eagerly created canvas. Both builds must successfully load the real four-part sample using the hardware renderer and complete warm/offline sample checks. The script checks functionality and budgets without imposing brittle millisecond pass/fail thresholds. This work changes startup loading; it does not repeat or redefine the navigation frame-rate results in [PERFORMANCE.md](PERFORMANCE.md).
+
+## Shenzhen Friends
+
+Friends adds nothing to the launch path: the main process and the renderer load it a second after the first paint.
+The interleaved comparison with 0.1.9, with Friends on and off, is in [Shenzhen Friends § Startup](FRIENDS.md#startup)
+and [friends-startup.json](../tests/startup-results/friends-startup.json). `electron/startup.mjs` takes
+`--baseline-electron` and `--candidate-electron` to compare each variant's own main-process code.
+

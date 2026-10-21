@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {Matrix4,Vector3} from 'three';
 import {createKernel,importOptions,summarizeModel} from './benchmark.mjs';
+import {checkSplitAssembly} from './test-cad-split.mjs';
 const started=performance.now(),occt=await createKernel(),results=[];
 const near=(actual,expected,tolerance=1e-7)=>assert.ok(Math.abs(actual-expected)<=tolerance,`${actual} != ${expected}`);
 const query=result=>{assert.equal(result.ok,true,result.message);return result;};
@@ -26,6 +27,7 @@ try{
   const importStart=performance.now(),assembly=open(occt.OpenExactStepModel(fs.readFileSync('fixtures/sample-assembly.step'),importOptions)),importMs=performance.now()-importStart,summary=summarizeModel(assembly);
   check('Sample STEP assembly instances, transforms, colors and dimensions',()=>{assert.equal(summary.stats.partCount,3154);assert.equal(summary.nodeCount,3815);assert.equal(summary.stats.geometryCount,16);assert.equal(summary.meshInstances,3154);assert.equal(summary.uniqueTriangles,960);assert.equal(summary.renderedTriangles,153720);assert.equal(summary.nonIdentityTransforms,3603);assert.equal(summary.invalidTransforms,0);assert.equal(summary.materials,16);assert.equal(summary.coloredGeometries,16);near(summary.unitScaleToMeters,.001);[248,72,10.1].forEach((value,i)=>near(summary.bounds.size[i],value,.001));});
   check('Sample STEP face topology maps to valid exact handles',()=>{for(const g of assembly.geometries){const binding=assembly.exactGeometryBindings.find(b=>b.geometryId===g.id);assert.ok(binding);const faceIds=new Set(g.faces.map(f=>f.id));assert.equal(g.triangleToFaceMap.length,g.indices.length/3);for(const faceId of g.triangleToFaceMap)assert.ok(faceIds.has(faceId));for(const face of g.faces.slice(0,1)){const area=query(occt.MeasureExactFaceArea(assembly.exactModelId,binding.exactShapeHandle,'face',face.id));assert.ok(area.value>0);}}});
+  check('Sample STEP read part by part matches the whole-file assembly',()=>checkSplitAssembly(occt,fs.readFileSync('fixtures/sample-assembly.step'),assembly));
   while(models.length){const released=models.pop();assert.equal(occt.ReleaseExactModel(released).ok,true);assert.equal(occt.ReleaseExactModel(released).ok,false);}
   check('all exact models released',()=>assert.equal(occt.GetExactModelDiagnostics().liveExactModelCount,0));
   const report={date:new Date().toISOString(),checks:results.length,results,elapsedMs:performance.now()-started,assemblyImportMs:importMs,assembly:summary};fs.mkdirSync('artifacts',{recursive:true});fs.writeFileSync('artifacts/cad-validation.json',JSON.stringify(report,null,2)+'\n');console.log(`${results.length} CAD regression checks passed; STEP import ${Math.round(importMs)} ms.`);

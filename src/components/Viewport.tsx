@@ -9,15 +9,18 @@ export const Viewport = forwardRef<
   {
     ViewerClass?: typeof Viewer;
     onPick: (pick: Pick) => void;
+    onMiss?: () => void;
     onHover: (text: string) => void;
     onReady: (viewer: Viewer) => void;
     onError: (message: string) => void;
   }
->(({ ViewerClass, onPick, onHover, onReady, onError }, ref) => {
+>(({ ViewerClass, onPick, onMiss, onHover, onReady, onError }, ref) => {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | undefined>(undefined);
   const pick = useRef(onPick);
   pick.current = onPick;
+  const miss = useRef(onMiss);
+  miss.current = onMiss;
   const hover = useRef(onHover);
   hover.current = onHover;
   useImperativeHandle(
@@ -35,6 +38,7 @@ export const Viewport = forwardRef<
       const v = new ViewerClass(host.current!);
       viewer.current = v;
       v.onPick = (p) => pick.current(p);
+      v.onMiss = () => miss.current?.();
       v.onHover = (t) => hover.current(t);
       onReady(v);
       return () => {

@@ -1,6 +1,6 @@
 {
   "name": "shenzhen-3d",
-  "version": "0.1.9",
+  "version": "0.2.2",
   "description": "CAD, mesh and drawing viewer",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
@@ -25,6 +25,9 @@
     "benchmark:startup": "node tests/startup-browser.mjs",
     "benchmark:startup:electron": "node electron/startup.mjs",
     "build:dmg:artwork": "node scripts/build-dmg-artwork.mjs",
+    "setup:friends": "scripts/friends/setup-friends.sh",
+    "test:friends": "node --test electron/friends-bridge.test.cjs electron/friends-files.test.cjs electron/friends-host.test.cjs electron/friends-share-menu.test.cjs electron/friends-view-menu.test.cjs && vitest run tests/friends-views.test.ts tests/friends-panel.test.ts tests/friends-settings.test.ts tests/friends-download-link.test.ts tests/friends-drops.test.ts tests/friends-routes.test.ts && node electron/friends-smoke.mjs && node electron/friends-shortcut.mjs",
+    "test:friends:package": "node electron/friends-package-smoke.mjs",
     "test:updates": "node --test electron/update-manager.test.cjs && node electron/updates-ui.mjs"
   },
   "keywords": [],

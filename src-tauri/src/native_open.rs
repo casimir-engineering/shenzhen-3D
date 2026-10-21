@@ -7,7 +7,9 @@ use tauri_plugin_fs::FsExt;
 #[derive(Default)]
 pub struct NativeOpenFiles(Mutex<HashMap<String, VecDeque<Vec<String>>>>);
 
-// Only OS-delivered paths enter this queue; the renderer cannot grant itself paths.
+// Only OS-delivered paths enter this queue; the renderer cannot grant itself paths. Android delivers none outside
+// Friends' Open.
+#[cfg_attr(all(target_os = "android", not(feature = "friends")), allow(dead_code))]
 pub fn queue(app: &tauri::AppHandle, paths: Vec<PathBuf>) {
     let files: Vec<String> = paths
         .into_iter()

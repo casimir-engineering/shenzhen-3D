@@ -8,12 +8,16 @@
 
 /* Begin PBXBuildFile section */
 		0E5839BCEBAC36ECED1D5657 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 958653326C18B3AAFD473B04 /* MetalKit.framework */; };
+		12782DC0EC91CA69381C42CA /* Network.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E5B9403E903D899853FE804A /* Network.framework */; };
 		1493C4BCC81787C63BFF5C08 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 17DE223F5C9038F05CFE074A /* LaunchScreen.storyboard */; };
 		39D94A7D9B1A3ADD668C46EA /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1DE8CF1A1F0E648D43FF59D1 /* WebKit.framework */; };
 		727CAD0420A7CDAC305FF4DF /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 801F03A84B7E47108B3212E4 /* Security.framework */; };
+		7D157D63E5ED9BD9B1B4BFE8 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 4DBC119760E8389061F1F289 /* libsqlite3.tbd */; };
 		803721D2E2B8E05C480C917D /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 53ACF4E9891A216DC5CC9F21 /* UIKit.framework */; };
 		981A35CC76F8AA3BE9F734A1 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = D7D1CA6566C71EFE154FB898 /* assets */; };
 		B27FEAA4D04D81BA7F2BD107 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 82C4884389EE8EC8755AB813 /* Assets.xcassets */; };
+		B3B83E09DDD55DC3568BB96C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F8A5A08DD79D8A8604E6749F /* PrivacyInfo.xcprivacy */; };
+		B7314592F5081ED110A30101 /* CoreBluetooth.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 530A9A8FF0424847029B060C /* CoreBluetooth.framework */; };
 		D0B0299099B6B13778F28305 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = EEF2136502D923692608F0F5 /* libapp.a */; };
 		E2E8614472D7FF08853CCEF8 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = D83A68FAA625CF9EBDED51C3 /* main.mm */; };
 		F119B6EF0ECEF6CBB1B6C4E4 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6144F5C149B36412180D415E /* QuartzCore.framework */; };
@@ -27,6 +31,8 @@
 		1DE8CF1A1F0E648D43FF59D1 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		2563C40A6286FA724B1E81E0 /* shenzhen-3d_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "shenzhen-3d_iOS.entitlements"; sourceTree = "<group>"; };
 		28D9900BC5858874446D5B88 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		4DBC119760E8389061F1F289 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
+		530A9A8FF0424847029B060C /* CoreBluetooth.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreBluetooth.framework; path = System/Library/Frameworks/CoreBluetooth.framework; sourceTree = SDKROOT; };
 		53ACF4E9891A216DC5CC9F21 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		6144F5C149B36412180D415E /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		7CCCEA74228417759A65455A /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
@@ -34,12 +40,17 @@
 		82C4884389EE8EC8755AB813 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		8A4B03872103770B15A0DA12 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		958653326C18B3AAFD473B04 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		A4AE550C26C442EED0FD0B47 /* native_open.rs */ = {isa = PBXFileReference; path = native_open.rs; sourceTree = "<group>"; };
+		BE0C4C72EF503C204043BE20 /* smoke.rs */ = {isa = PBXFileReference; path = smoke.rs; sourceTree = "<group>"; };
 		CE4B5E733F7A2E49A6E18308 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		D7D1CA6566C71EFE154FB898 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
 		D83A68FAA625CF9EBDED51C3 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
 		E16C10D73D51A0AD9B7DF097 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		E5B9403E903D899853FE804A /* Network.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Network.framework; path = System/Library/Frameworks/Network.framework; sourceTree = SDKROOT; };
 		EEF2136502D923692608F0F5 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		F0D1BCFEFDE520550D2F56EC /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
+		F34F9CE92EFD3E6A299E7632 /* friends.rs */ = {isa = PBXFileReference; path = friends.rs; sourceTree = "<group>"; };
+		F8A5A08DD79D8A8604E6749F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -54,6 +65,9 @@
 				F119B6EF0ECEF6CBB1B6C4E4 /* QuartzCore.framework in Frameworks */,
 				727CAD0420A7CDAC305FF4DF /* Security.framework in Frameworks */,
 				803721D2E2B8E05C480C917D /* UIKit.framework in Frameworks */,
+				7D157D63E5ED9BD9B1B4BFE8 /* libsqlite3.tbd in Frameworks */,
+				B7314592F5081ED110A30101 /* CoreBluetooth.framework in Frameworks */,
+				12782DC0EC91CA69381C42CA /* Network.framework in Frameworks */,
 				39D94A7D9B1A3ADD668C46EA /* WebKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -82,6 +96,7 @@
 			isa = PBXGroup;
 			children = (
 				CE4B5E733F7A2E49A6E18308 /* Info.plist */,
+				F8A5A08DD79D8A8604E6749F /* PrivacyInfo.xcprivacy */,
 				2563C40A6286FA724B1E81E0 /* shenzhen-3d_iOS.entitlements */,
 			);
 			path = "shenzhen-3d_iOS";
@@ -98,10 +113,13 @@
 		94B6CB9A66538CF980F98EFD /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				530A9A8FF0424847029B060C /* CoreBluetooth.framework */,
 				28D9900BC5858874446D5B88 /* CoreGraphics.framework */,
 				EEF2136502D923692608F0F5 /* libapp.a */,
+				4DBC119760E8389061F1F289 /* libsqlite3.tbd */,
 				8A4B03872103770B15A0DA12 /* Metal.framework */,
 				958653326C18B3AAFD473B04 /* MetalKit.framework */,
+				E5B9403E903D899853FE804A /* Network.framework */,
 				6144F5C149B36412180D415E /* QuartzCore.framework */,
 				801F03A84B7E47108B3212E4 /* Security.framework */,
 				53ACF4E9891A216DC5CC9F21 /* UIKit.framework */,
@@ -136,8 +154,11 @@
 		CD27A4A56E9D9B131A5D6992 /* src */ = {
 			isa = PBXGroup;
 			children = (
+				F34F9CE92EFD3E6A299E7632 /* friends.rs */,
 				F0D1BCFEFDE520550D2F56EC /* lib.rs */,
 				7CCCEA74228417759A65455A /* main.rs */,
+				A4AE550C26C442EED0FD0B47 /* native_open.rs */,
+				BE0C4C72EF503C204043BE20 /* smoke.rs */,
 			);
 			name = src;
 			path = ../../src;
@@ -148,6 +169,20 @@
 			children = (
 			);
 			path = Externals;
+			sourceTree = "<group>";
+		};
+		"TEMP_B06B5107-DFA3-4BDD-8B4F-C16D3D827865" /* arm64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = arm64;
+			sourceTree = "<group>";
+		};
+		"TEMP_BFE31F2E-1220-4535-A5DE-141A2D46DA53" /* x86_64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = x86_64;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -210,6 +245,7 @@
 			files = (
 				B27FEAA4D04D81BA7F2BD107 /* Assets.xcassets in Resources */,
 				1493C4BCC81787C63BFF5C08 /* LaunchScreen.storyboard in Resources */,
+				B3B83E09DDD55DC3568BB96C /* PrivacyInfo.xcprivacy in Resources */,
 				981A35CC76F8AA3BE9F734A1 /* assets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -325,6 +361,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "shenzhen-3d_iOS/shenzhen-3d_iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				"CODE_SIGN_IDENTITY[sdk=iphonesimulator*]" = "-";
+				"CODE_SIGN_STYLE[sdk=iphonesimulator*]" = Manual;
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -412,6 +450,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "shenzhen-3d_iOS/shenzhen-3d_iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				"CODE_SIGN_IDENTITY[sdk=iphonesimulator*]" = "-";
+				"CODE_SIGN_STYLE[sdk=iphonesimulator*]" = Manual;
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (

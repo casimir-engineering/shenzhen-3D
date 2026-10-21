@@ -1,4 +1,16 @@
+#[cfg(target_os = "android")]
+mod android_updates;
+#[cfg(any(windows, target_os = "linux", target_os = "ios"))]
+mod app_updates;
+#[cfg(feature = "friends")]
+mod friends;
+#[cfg(feature = "friends")]
+mod friends_links;
 mod native_open;
+#[cfg(any(windows, target_os = "linux", target_os = "ios", test))]
+mod release_feed;
+#[cfg(feature = "friends-smoke")]
+mod smoke;
 #[cfg(desktop)]
 use tauri::{Emitter, Manager};
 
@@ -22,8 +34,10 @@ fn desktop_menu(app: &tauri::App) -> tauri::Result<()> {
     let point = item("point", "Point Measurement", "CmdOrCtrl+Shift+P")?;
     let feature = item("feature", "Feature Measurement", "CmdOrCtrl+Shift+F")?;
     let help = item("help", "Navigation & Shortcuts", "CmdOrCtrl+/")?;
-    let file = Submenu::with_items(
+    // The id lets Friends add File ▸ Copy Download Link after Open File… (src/friends.rs).
+    let file = Submenu::with_id_and_items(
         app,
+        "file",
         "File",
         true,
         &[
@@ -126,6 +140,11 @@ fn desktop_menu(app: &tauri::App) -> tauri::Result<()> {
     app.set_menu(menu)?;
     app.on_menu_event(|app, event| {
         let action = event.id().as_ref();
+        #[cfg(feature = "friends")]
+        if let Some(days) = friends::link_choice(action) {
+            tauri_plugin_szfriends::copy_download_link(app, days);
+            return;
+        }
         if action == "new-window" {
             let label = format!(
                 "viewer-{}",
@@ -157,19 +176,63 @@ fn desktop_menu(app: &tauri::App) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default()
-        .manage(native_open::NativeOpenFiles::default())
+    let builder = tauri::Builder::default().manage(native_open::NativeOpenFiles::default());
+    #[cfg(all(feature = "friends", any(windows, target_os = "linux", target_os = "android")))]
+    let builder = friends_links::plugins(builder);
+    #[cfg(all(
+        not(feature = "friends-smoke"),
+        not(any(windows, target_os = "linux", target_os = "ios", target_os = "android"))
+    ))]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        native_open::take_native_open_files
+    ]);
+    // Android updates itself from GitHub Releases (src/android_updates.rs, docs/UPDATES.md § Android).
+    #[cfg(all(not(feature = "friends-smoke"), target_os = "android"))]
+    let builder = builder
+        .plugin(android_updates::plugin())
         .invoke_handler(tauri::generate_handler![
-            native_open::take_native_open_files
-        ])
+            native_open::take_native_open_files,
+            android_updates::android_updates,
+            android_updates::android_updates_subscribe
+        ]);
+    // Windows, Linux and iOS update themselves from GitHub Releases (src/app_updates.rs, docs/UPDATES.md).
+    #[cfg(all(
+        not(feature = "friends-smoke"),
+        any(windows, target_os = "linux", target_os = "ios")
+    ))]
+    let builder = builder
+        .plugin(app_updates::plugin())
+        .invoke_handler(tauri::generate_handler![
+            native_open::take_native_open_files,
+            app_updates::app_updates,
+            app_updates::app_updates_subscribe
+        ]);
+    #[cfg(all(not(feature = "friends-smoke"), any(windows, target_os = "linux")))]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init());
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+    #[cfg(feature = "friends")]
+    let builder = builder.plugin(friends::plugin());
+    #[cfg(feature = "friends-smoke")]
+    let builder = builder
+        .manage(smoke::Checks::default())
+        .invoke_handler(tauri::generate_handler![
+            native_open::take_native_open_files,
+            smoke::smoke_checks,
+            smoke::smoke_report,
+            smoke::smoke_native_drop,
+            smoke::smoke_link_ready
+        ])
+        .on_page_load(smoke::page_loaded);
     builder
         .setup(|_app| {
             #[cfg(desktop)]
             desktop_menu(_app)?;
+            #[cfg(all(feature = "friends", any(windows, target_os = "linux", target_os = "android")))]
+            friends_links::listen(_app.handle());
             #[cfg(desktop)]
             if cfg!(debug_assertions) {
                 _app.handle().plugin(
@@ -193,6 +256,8 @@ pub fn run() {
         .run(|_app, _event| {
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             if let tauri::RunEvent::Opened { urls } = _event {
+                #[cfg(feature = "friends")]
+                friends_links::open(_app, urls.iter().map(|url| url.as_str()));
                 native_open::queue(
                     _app,
                     urls.into_iter()

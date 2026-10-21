@@ -5,6 +5,9 @@ const path = require("node:path");
 const os = require("node:os");
 const asar = require("@electron/asar");
 const RELEASE_OWNERS = ["fixture-primary", "fixture-secondary"];
+// Stage the first as a public build and the second as the private owner's.
+const PRIVATE_OWNER = "fixture-secondary";
+const access = (owner) => (owner === PRIVATE_OWNER ? "private" : "public");
 
 for (const releaseOwner of RELEASE_OWNERS) {
   test(`runtime staging and actual ASAR retain ${releaseOwner} with all production dependencies`, async (t) => {
@@ -22,13 +25,15 @@ for (const releaseOwner of RELEASE_OWNERS) {
     const metadata = await stageRuntime(staging, pkg, {
       releaseOwner,
       forbiddenOwners,
+      privateReleaseOwner: PRIVATE_OWNER,
     });
     assert.equal(metadata.releaseOwner, releaseOwner);
-    assert.equal(
-      JSON.parse(await fs.readFile(path.join(staging, "package.json")))
-        .releaseOwner,
-      releaseOwner,
+    assert.equal(metadata.releaseAccess, access(releaseOwner));
+    const staged = JSON.parse(
+      await fs.readFile(path.join(staging, "package.json")),
     );
+    assert.equal(staged.releaseOwner, releaseOwner);
+    assert.equal(staged.releaseAccess, access(releaseOwner));
     assert.equal(metadata.runtimeDependencies.length, 16);
     assert.ok(
       Object.hasOwn(metadata.runtimeFiles, "electron/release-channel.cjs"),
@@ -64,6 +69,15 @@ for (const releaseOwner of RELEASE_OWNERS) {
         }),
       /does not match provenance/,
     );
+    assert.throws(
+      () =>
+        verifyRuntimeArchive(archive, {
+          ...metadata,
+          releaseAccess:
+            access(releaseOwner) === "private" ? "public" : "private",
+        }),
+      /access does not match provenance/,
+    );
     const config = require("../electron-builder.cjs");
     await fs.writeFile(
       path.join(staging, "build-info.json"),
@@ -76,14 +90,27 @@ for (const releaseOwner of RELEASE_OWNERS) {
     );
     await fs.mkdir(resources, { recursive: true });
     await fs.copyFile(archive, path.join(resources, "app.asar"));
+    const isPrivate = access(releaseOwner) === "private";
     const context = {
       appOutDir,
       packager: {
         projectDir: staging,
-        config: { publish: { ...config.publish, owner: releaseOwner } },
+        config: {
+          publish: {
+            ...config.publish,
+            owner: releaseOwner,
+            private: isPrivate,
+          },
+        },
       },
     };
     await config.afterPack(context);
+    context.packager.config.publish.private = !isPrivate;
+    await assert.rejects(
+      config.afterPack(context),
+      /does not match release owner/,
+    );
+    context.packager.config.publish.private = isPrivate;
     context.packager.config.publish.owner = RELEASE_OWNERS.find(
       (x) => x !== releaseOwner,
     );
@@ -148,5 +175,45 @@ test("local exclusion policy is rejected even without an owner scan", async (t) 
         runtimeDependencies: [],
       }),
     /must not be packaged/,
+  );
+});
+
+test("release tooling refuses to package a GitHub token into a public build", async (t) => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "shenzhen-token-"));
+  t.after(() => fs.rm(temp, { recursive: true, force: true }));
+  const source = path.join(temp, "source");
+  await fs.mkdir(path.join(source, "dist"), { recursive: true });
+  await fs.writeFile(
+    path.join(source, "package.json"),
+    JSON.stringify({
+      releaseOwner: "casimir-engineering",
+      releaseAccess: "public",
+    }),
+  );
+  const { verifyRuntimeArchive } = await import("./package-mac.mjs");
+  const provenance = {
+    releaseOwner: "casimir-engineering",
+    releaseAccess: "public",
+    runtimeFiles: {},
+    runtimeDependencies: [],
+  };
+  // Built at runtime so no credential-shaped literal sits in the source.
+  const fake = "ghp_" + "Z9".repeat(18);
+  await fs.writeFile(
+    path.join(source, "dist/app.js"),
+    `fetch(u,{headers:{authorization:"token ${fake}"}})`,
+  );
+  const bad = path.join(temp, "bad.asar");
+  await asar.createPackage(source, bad);
+  assert.throws(
+    () => verifyRuntimeArchive(bad, provenance),
+    /GitHub token found in packaged file: \/dist\/app\.js/,
+  );
+  await fs.writeFile(path.join(source, "dist/app.js"), "fetch(u)");
+  const good = path.join(temp, "good.asar");
+  await asar.createPackage(source, good);
+  assert.equal(
+    verifyRuntimeArchive(good, provenance).packagedDependencyCount,
+    0,
   );
 });

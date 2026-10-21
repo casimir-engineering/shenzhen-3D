@@ -2,7 +2,7 @@
 
 A CAD, mesh and drawing viewer for inspecting assemblies and taking engineering measurements. One React/Three.js interface runs in the browser/PWA, a Chromium desktop performance shell, and lightweight Tauri desktop/mobile shells. Model files are processed on the device.
 
-[Mac 0.1.9 release notes](docs/MAC-0.1.9.md) · [Platform delivery and validation](docs/DELIVERY.md)
+[Mac 0.2.2 release notes](docs/MAC-0.2.2.md) · [Platform delivery and validation](docs/DELIVERY.md)
 
 Download installers from this repository’s **Releases** page.
 
@@ -17,7 +17,8 @@ Open STEP, IGES or BREP for CAD topology and exact supported feature queries; op
 - Source-unit overrides, custom measurement scale, display units and precision; saved session measurements exported as CSV/JSON and viewport screenshots as PNG.
 - Comments attached to parts, points, edges, faces or vertices; edit, resolve and share portable `.sz3d` files containing the model and saved measurements. [Review files](docs/REVIEW.md).
 - Shaded, shaded-with-edges, wireframe and dashed hidden-line views; movable key light and uniform fill. Optional progressive WebGPU ray tracing with raster navigation and measurement overlays. [Rendering and device limits](docs/RENDERING.md).
-- Automatic controls: left/middle drag pans, right-drag orbits around the view center, two-finger trackpad swipes pan, and pinch/mouse wheel zoom. Dark/light themes. [Controls and browser limits](docs/CONTROLS.md).
+- Automatic controls: left/middle drag pans, right-drag orbits around the view center (hold Command or Ctrl to pan instead), two-finger trackpad swipes zoom (hold Command or Ctrl to pan), and pinch/mouse wheel zoom. Dark/light themes. [Controls and browser limits](docs/CONTROLS.md).
+- Shenzhen Friends (beta) in the Mac app: message friends and send them models and projects, nearby or by Friends ID, shared with ShenzhenPDF and Shenzhen Files. [Shenzhen Friends](docs/FRIENDS.md).
 - Lightweight startup: the welcome screen opens before loading the 3D engine. Geometry tools load on first import; project archives and ray tracing load when needed. [Startup measurements](docs/STARTUP.md).
 - GPU instancing and merged material draws, spatially indexed picking, and automatic navigation detail for large assemblies. Full geometry returns when still; measurements always use the original model.
 
@@ -32,7 +33,7 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:1420`. Choose **Sample model** or open/drop a model. Select the model and its companion textures, MTL or BIN files together. **P** picks points, **E** picks features, **F** fits the view, and **Esc** clears a measurement. The measurement panel exposes units, scale and distance references; save useful results and export them before closing the session. **C** adds an anchored note; **⌘ / Ctrl S** shares the model, comments and saved measurements as one portable project.
+Open `http://localhost:1420`. Choose **Sample model** or open/drop a model. Select the model and its companion textures, MTL or BIN files together. **P** picks points, **E** picks features, **F** fits the view, and **Esc** clears a measurement. The measurement panel exposes units, scale and distance references; save useful results and export them before closing the session. **C** adds an anchored note; **⌘ / Ctrl S** shares the model, comments and saved measurements as one portable project. **⌘ / Ctrl K** finds any command, and in the apps with Friends, **⌘ / Ctrl J** opens or closes Friends ([controls](docs/CONTROLS.md#app-shortcuts)).
 
 Production web builds include a generated service worker for offline use after the app assets have been cached successfully. Installation starts after the welcome screen paints and a four-second grace period, then copies assets with at most two background requests; keep the first session online until that copy completes. Model files, annotations and saved measurement sessions are not stored by that cache; save a `.sz3d` project to retain them. Native shells bundle the application assets.
 

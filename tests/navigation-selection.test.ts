@@ -42,6 +42,10 @@ function fixture(matrix = new T.Matrix4().makeTranslation(10, 20, 30)) {
     options: { hidden: new Set() },
     host: { clientWidth: 600, clientHeight: 400 },
     invalidate: vi.fn(),
+    glide: { cancel: vi.fn() },
+    center: new T.Vector3(),
+    clipCenter: new T.Vector3(),
+    radius: 100,
   });
   const pick: Pick = {
     id: "pick",

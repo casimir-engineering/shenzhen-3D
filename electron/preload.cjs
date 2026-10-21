@@ -71,6 +71,7 @@ contextBridge.exposeInMainWorld("shenzhenRecentFiles", {
   },
   open: (id) => ipcRenderer.invoke("shenzhen-recent-files", "open", id),
   touch: (id) => ipcRenderer.invoke("shenzhen-recent-files", "touch", id),
+  paths: (id) => ipcRenderer.invoke("shenzhen-recent-files", "paths", id),
   remove: (id) => ipcRenderer.invoke("shenzhen-recent-files", "remove", id),
 });
 const invoke = (method, value) =>
@@ -90,3 +91,57 @@ contextBridge.exposeInMainWorld("shenzhenUpdates", {
     return () => ipcRenderer.removeListener("shenzhen-update-state", handler);
   },
 });
+// Shenzhen Friends (docs/FRIENDS.md): a narrow bridge to the main process's helper link, on the Mac only. Whether
+// Friends runs in this build is the main process's answer to join(); the panel shows nothing until it says so.
+// (Not a renderer argument: extra renderer arguments cost a fresh renderer process at launch.) Every call is
+// checked again in the main process (electron/friends/validate.cjs).
+// `process` is the sandboxed preload's own binding, not a property of globalThis.
+if (typeof process !== "undefined" && process.platform === "darwin") {
+  const friends = (method, value) =>
+    ipcRenderer.invoke("shenzhen-friends", method, value);
+  const friendsListeners = new Set();
+  ipcRenderer.on("shenzhen-friends-event", (_event, value) => {
+    if (!value || typeof value !== "object" || typeof value.kind !== "string")
+      return;
+    for (const listener of friendsListeners) {
+      try {
+        listener(value);
+      } catch {
+        /* One panel's error must not stop another listener. */
+      }
+    }
+  });
+  contextBridge.exposeInMainWorld("shenzhenFriends", {
+    join: () => friends("join"),
+    status: () => friends("status"),
+    subscribe: (listener) => {
+      if (typeof listener !== "function") return () => {};
+      friendsListeners.add(listener);
+      return () => friendsListeners.delete(listener);
+    },
+    send: (type, fields) => friends("send", { type, fields }),
+    setEnabled: (enabled) => friends("setEnabled", enabled === true),
+    image: (kind, path, width, height) =>
+      friends("image", { kind, path, width, height }),
+    animal: (set, index) => friends("animal", { set, index }),
+    animals: () => friends("animals"),
+    // Paths come only from native File objects the person dropped or chose.
+    pathsForFiles: (files) =>
+      Array.from(files ?? [], (file) => {
+        try {
+          return webUtils.getPathForFile(file) || null;
+        } catch {
+          return null;
+        }
+      }),
+    classify: (paths) => friends("classify", paths),
+    stage: (name, bytes) => friends("stage", { name, bytes }),
+    token: () => friends("token"),
+    openFile: (path) => friends("openFile", path),
+    showFile: (path) => friends("showFile", path),
+    chooseFolder: (start) => friends("chooseFolder", start ?? null),
+    openSettings: (target) => friends("openSettings", target),
+    openURL: (url) => friends("openURL", url),
+    shareable: (value) => friends("shareable", value === true),
+  });
+}

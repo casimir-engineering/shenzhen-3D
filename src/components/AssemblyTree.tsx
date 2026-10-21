@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, useRef } from "react";
+import { memo, useEffect, useMemo, useState, useRef } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -10,21 +10,29 @@ import {
   Focus,
 } from "lucide-react";
 import type { ModelDocument, TreeNode } from "../core/types";
+import {
+  nodeParts,
+  nodePath,
+  type PartSelection,
+} from "../core/assembly-selection";
+export { nodeParts };
 interface Props {
   doc: ModelDocument;
   hidden: Set<string>;
   selected?: string;
+  /** Each new selection's row is expanded to and scrolled into view. */
+  selection?: PartSelection;
   onToggle: (ids: string[]) => void;
-  onSelect: (ids: string[]) => void;
+  /** `deselect` asks to clear the selection (Cmd/Ctrl-click on the selected row). */
+  onSelect: (nodeId: string, ids: string[], deselect: boolean) => void;
   onIsolate: (ids: string[]) => void;
 }
-export function nodeParts(node: TreeNode): string[] {
-  return [...node.partIds, ...node.children.flatMap(nodeParts)];
-}
+const ROW = 32;
 export const AssemblyTree = memo(function AssemblyTree({
   doc,
   hidden,
   selected,
+  selection,
   onToggle,
   onSelect,
   onIsolate,
@@ -52,7 +60,37 @@ export const AssemblyTree = memo(function AssemblyTree({
     doc.roots.forEach((n) => walk(n, 0));
     return out;
   }, [doc, search, expanded]);
-  const start = Math.max(0, Math.floor(scroll / 32) - 5),
+  const selectedNode = selection?.nodeId;
+  const reveal = useRef(selectedNode);
+  useEffect(() => {
+    reveal.current = selectedNode;
+    const ancestors = selectedNode
+      ? (nodePath(doc.roots, selectedNode) ?? []).slice(0, -1).map((n) => n.id)
+      : [];
+    if (ancestors.length)
+      setExpanded((old) =>
+        ancestors.every((id) => old.has(id))
+          ? old
+          : new Set([...old, ...ancestors]),
+      );
+  }, [doc, selection]);
+  useEffect(() => {
+    const element = container.current;
+    const index = reveal.current
+      ? rows.findIndex(({ node }) => node.id === reveal.current)
+      : -1;
+    if (!element || index < 0) return;
+    reveal.current = undefined;
+    const top = index * ROW;
+    if (
+      top < element.scrollTop ||
+      top + ROW > element.scrollTop + element.clientHeight
+    ) {
+      element.scrollTop = Math.max(0, top - (element.clientHeight - ROW) / 2);
+      setScroll(element.scrollTop);
+    }
+  }, [rows, selection]);
+  const start = Math.max(0, Math.floor(scroll / ROW) - 5),
     visible = rows.slice(start, start + 45);
   return (
     <>
@@ -77,12 +115,14 @@ export const AssemblyTree = memo(function AssemblyTree({
         role="tree"
         aria-label="Assembly structure"
       >
-        <div style={{ height: rows.length * 32, position: "relative" }}>
+        <div style={{ height: rows.length * ROW, position: "relative" }}>
           {visible.map(({ node, depth }, i) => {
             const ids = nodeParts(node);
             const allHidden =
               ids.length > 0 && ids.every((id) => hidden.has(id));
-            const active = !!selected && ids.includes(selected);
+            const active = selectedNode
+              ? node.id === selectedNode
+              : !!selected && ids.includes(selected);
             return (
               <div
                 className={`tree-row ${active ? "selected" : ""} ${allHidden ? "muted" : ""}`}
@@ -95,7 +135,7 @@ export const AssemblyTree = memo(function AssemblyTree({
                 key={node.id}
                 style={{
                   position: "absolute",
-                  top: (start + i) * 32,
+                  top: (start + i) * ROW,
                   left: 0,
                   right: 0,
                   paddingLeft: 8 + depth * 12,
@@ -132,7 +172,14 @@ export const AssemblyTree = memo(function AssemblyTree({
                 <button
                   className="tree-name"
                   title={node.name}
-                  onClick={() => ids[0] && onSelect(ids)}
+                  onClick={(event) =>
+                    ids[0] &&
+                    onSelect(
+                      node.id,
+                      ids,
+                      active && (event.metaKey || event.ctrlKey),
+                    )
+                  }
                 >
                   {node.children.length ? (
                     <Layers size={13} />

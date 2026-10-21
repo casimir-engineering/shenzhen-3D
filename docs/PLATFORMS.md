@@ -12,6 +12,8 @@ Shenzhen 3D uses one local React/Three.js viewer. The primary macOS application 
 | Android 7+ | APK, AAB | `node scripts/platform-build.mjs android --apk --aab` |
 | iOS/iPadOS 15+ | App archive, simulator app | `node scripts/platform-build.mjs ios --archive-only` |
 
+Desktop packages with Shenzhen Friends add `--friends` after `node scripts/friends/setup-tauri-friends.mjs` has staged the pinned helper (the Rust helper on Windows and Linux; on a Mac the Objective-C helper `scripts/friends/setup-friends.sh` builds, placed in `Contents/Helpers`; see [Friends](FRIENDS.md#tauri)); without it the Tauri builds carry no Friends.
+
 Build on the target desktop operating system. Windows uses WebView2; its installer bootstraps the runtime when needed. Linux requires WebKitGTK 4.1. Browsers and native webviews need WebGL2 and WebAssembly. Complex CAD documents require enough memory for both the CAD kernel and triangulated geometry; mobile devices generally have lower limits.
 
 ## 0.1.9 build checkpoint

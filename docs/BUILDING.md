@@ -29,7 +29,11 @@ npm run package:electron:mac -- --release-owner="<github-owner>"
 npm run test:electron
 ```
 
-The package script always builds the frontend first, then creates a Developer ID signed ARM64 app, Retina DMG and updater ZIP/feed when the configured signing identity is available. Timestamped output folders in `artifacts/electron/` include `build-info.json` with the source commit, frontend/runtime file hashes and the verified updater dependency inventory. Packaging checks the actual ASAR dependency closure before signing and validates the updater feed against the final ZIP/DMG bytes. Pass `-- --release-owner=<github-owner>` with this repository’s owner. The package updates only from that repository. See [update packaging](UPDATES.md) and [Mac 0.1.9](MAC-0.1.9.md) for current verification and delivery status. The DMG includes a drag-to-Applications shortcut and 1×/2× artwork; regenerate the committed artwork from its editable SVG with `npm run build:dmg:artwork`. Signing does not establish notarization. Electron and Chromium notices are included with the bundle. See [measured renderer performance](PERFORMANCE.md) for browser, Electron and system WebKit evidence. The Tauri builds below remain available as lightweight desktop and mobile packages.
+The Mac app embeds Shenzhen Friends, built from the shenzhen-pdf commit `friends.lock` pins: run `npm run
+setup:friends` once before packaging, which then verifies it. [Shenzhen Friends](FRIENDS.md) covers setup, the pin,
+packaging and its tests.
+
+The package script always builds the frontend first, then creates a Developer ID signed ARM64 app, Retina DMG and updater ZIP/feed when the configured signing identity is available. Add `--ad-hoc` for a local test build signed ad hoc, the app and the Friends helper both, even where that identity is in the keychain. Timestamped output folders in `artifacts/electron/` include `build-info.json` with the source commit, frontend/runtime file hashes and the verified updater dependency inventory. Packaging checks the actual ASAR dependency closure before signing and validates the updater feed against the final ZIP/DMG bytes. Pass `-- --release-owner=<github-owner>` with this repository’s owner. The package updates only from that repository. See [update packaging](UPDATES.md) and [Mac 0.1.9](MAC-0.1.9.md) for current verification and delivery status. The DMG includes a drag-to-Applications shortcut and 1×/2× artwork; regenerate the committed artwork from its editable SVG with `npm run build:dmg:artwork`. Signing does not establish notarization. Electron and Chromium notices are included with the bundle. See [measured renderer performance](PERFORMANCE.md) for browser, Electron and system WebKit evidence. The Tauri builds below remain available as lightweight desktop and mobile packages.
 
 ### Native macOS scroll source
 
@@ -83,6 +87,7 @@ node tests/drawing-browser.mjs
 node scripts/license-audit.mjs
 node tests/render-styles-browser.mjs --software
 node scripts/perf/check-ray-tracing.mjs --sample
+node tests/ray-tracing-exposure-browser.mjs
 ```
 
 `npm test` runs the unit/geometry suites, including mesh features, source units, formats, drawings and surface routes. The CAD script exercises generated solids and the sample STEP assembly against the pinned exact kernel. The benchmark records local startup/import timing and assembly statistics; it is not a device-wide performance guarantee.
@@ -91,7 +96,7 @@ node scripts/perf/check-ray-tracing.mjs --sample
 
 Playwright covers the real application in desktop and mobile-sized Chromium projects. Mobile emulation is useful for layout/touch interactions and does not replace Android/iOS device tests. It starts the Vite server unless `E2E_BASE_URL` points to an existing deployment. On a Linux CI machine, use `npx playwright install --with-deps chromium` to include browser system dependencies.
 
-The ray-tracing check requires a genuine WebGPU device and runs headed on Metal; it checks retained sample-assembly instancing, convergence, immutable source geometry, navigation pause/resume and GPU PNG readback. Unsupported devices retain the raster viewer. Run these GPU checks sequentially when measuring performance.
+The ray-tracing check requires a genuine WebGPU device and runs headed on Metal; it checks retained sample-assembly instancing, convergence, immutable source geometry, navigation pause/resume and GPU PNG readback. The exposure check compares the converged trace of the sample model with its raster view (see [Rendering](RENDERING.md#lighting-and-exposure)); it needs a hardware WebGPU adapter and runs headless. Both start their own development server on a free port unless `PERF_BASE_URL` names one. Unsupported devices retain the raster viewer. Run these GPU checks sequentially when measuring performance.
 
 The standalone format browser check isolates XML loaders, companion object URLs and texture decoding from the UI shell. The drawing browser check exercises DXF/DWG parsing and text rendering. Generated evidence lives under ignored `artifacts/`; browser failures retain traces/screenshots under `test-results/`, with the Playwright report under `playwright-report/`.
 

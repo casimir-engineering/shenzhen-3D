@@ -58,8 +58,8 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 0.1.9
-        CFBundleVersion: "0.1.9"
+        CFBundleShortVersionString: 0.2.2
+        CFBundleVersion: "0.2.2"
     entitlements:
       path: shenzhen-3d_iOS/shenzhen-3d_iOS.entitlements
     scheme:
@@ -68,6 +68,10 @@ targets:
         RUST_LOG: info
     settings:
       base:
+        # Simulator builds sign to run locally (ad hoc, never a developer identity), so the simulator grants the
+        # entitlements Shenzhen Friends' Keychain item needs; device builds sign as before.
+        CODE_SIGN_IDENTITY[sdk=iphonesimulator*]: "-"
+        CODE_SIGN_STYLE[sdk=iphonesimulator*]: Manual
         ENABLE_BITCODE: false
         ARCHS: [arm64]
         VALID_ARCHS: arm64 
@@ -85,6 +89,10 @@ targets:
       - sdk: QuartzCore.framework
       - sdk: Security.framework
       - sdk: UIKit.framework
+      # Shenzhen Friends: the core's SQLite is the system's on iOS, and the plugin's Swift half finds people nearby.
+      - sdk: libsqlite3.tbd
+      - sdk: CoreBluetooth.framework
+      - sdk: Network.framework
       - sdk: WebKit.framework
     preBuildScripts:
       - script: |

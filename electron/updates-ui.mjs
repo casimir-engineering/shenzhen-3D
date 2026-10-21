@@ -62,6 +62,7 @@ try {
       status: "idle",
       automatic: true,
       repository: "fixture-source",
+      access: "private",
       prereleases: true,
       connected: false,
       message: "Connect to receive private releases.",
@@ -77,6 +78,17 @@ try {
         if (!["fixture-source", "fixture-alternate"].includes(owner))
           throw Error("Invalid fixture origin");
         state.repository = owner;
+        return send();
+      },
+      makePublic() {
+        Object.assign(state, {
+          access: "public",
+          status: "idle",
+          connected: false,
+          availableVersion: undefined,
+          progress: undefined,
+          message: "",
+        });
         return send();
       },
     };
@@ -207,9 +219,33 @@ try {
   await expect(
     page.getByRole("dialog", { name: "Updates", exact: true }),
   ).not.toBeVisible();
+  // A build with public releases offers updates with no GitHub access step.
+  await application.evaluate(() => globalThis.__updatesUiFixture.makePublic());
+  await application.evaluate(({ Menu }) =>
+    Menu.getApplicationMenu()
+      .items[0].submenu.items.find(
+        (item) => item.label === "Check for Updates…",
+      )
+      .click(),
+  );
+  await expect(
+    page.getByRole("dialog", { name: "Updates", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Check for updates", exact: true }),
+  ).toBeEnabled();
+  await expect(page.locator(".updates-connection")).toHaveCount(0);
+  await expect(page.getByLabel("Access token")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Use GitHub CLI login" }),
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("dialog", { name: "Updates", exact: true }),
+  ).not.toBeVisible();
   expect(await page.locator("canvas").count()).toBe(0);
   console.log(
-    "PASS: lazy update UI, private access form, preferences, read-only fixture sources, no repository configuration calls, availability, download progress, install state, Escape, renderer-free startup",
+    "PASS: lazy update UI, private access form, public build without access step, preferences, read-only fixture sources, no repository configuration calls, availability, download progress, install state, Escape, renderer-free startup",
   );
 } finally {
   await application.close();

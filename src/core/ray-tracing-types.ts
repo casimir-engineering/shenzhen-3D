@@ -1,4 +1,5 @@
 import type { Camera, Color, InstancedMesh, Mesh } from "three";
+import type { Vec3 } from "./types";
 export type RayTracingStatus =
   "unsupported" | "preparing" | "rendering" | "ready" | "error";
 export interface RayTracingState {
@@ -13,12 +14,17 @@ export interface RayTracingSettings {
   samples: 32 | 128 | 512;
   resolution: 0.5 | 1;
 }
+/**
+ * The raster viewer's lights, in Three's units and linear colours, so the
+ * worker can trace the same lighting. Directions point toward the light.
+ */
 export interface RayTracingLighting {
-  uniform?: boolean;
-  intensity?: number;
-  ambient?: number;
-  direction?: [number, number, number];
-  color?: [number, number, number];
+  /** Three `HemisphereLight`: `sky` lights surfaces facing `up`. */
+  hemisphere?: { up: Vec3; sky: Vec3; ground: Vec3; intensity: number };
+  /** Three `AmbientLight`. */
+  ambient?: { color: Vec3; intensity: number };
+  /** Three `DirectionalLight`s. */
+  directional?: { direction: Vec3; color: Vec3; intensity: number }[];
 }
 export interface RayTracingInput {
   sources: readonly (InstancedMesh | Mesh)[];

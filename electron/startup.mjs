@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 const argument = name => process.argv.find(value => value.startsWith(`--${name}=`))?.slice(name.length + 3);
 const baseline = argument('baseline'), candidate = argument('candidate');
-if (!baseline || !candidate) throw Error('Usage: node electron/startup.mjs --baseline=/frozen/dist --candidate=/new/dist [--runs=5] [--report=output.json]');
+if (!baseline || !candidate) throw Error('Usage: node electron/startup.mjs --baseline=/frozen/dist --candidate=/new/dist [--baseline-electron=/old/electron] [--candidate-electron=/new/electron] [--runs=5] [--report=output.json]');
 const runs = Number(argument('runs') || 5);
 if (!Number.isInteger(runs) || runs < 1 || runs > 20) throw Error('runs must be an integer from 1 through20');
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'shenzhen-startup-'));
@@ -14,14 +14,24 @@ const environment = {...process.env};
 delete environment.SHENZHEN_3D_DEV_URL;
 const rows = [];
 try {
-  const main = await fs.readFile('electron/main.cjs'), assets = await fs.readFile('electron/assets.cjs'), preload = await fs.readFile('electron/preload.cjs');
   const packageMetadata = JSON.parse(await fs.readFile('package.json', 'utf8'));
+  // Each variant's main-process code: this checkout's electron/ unless --baseline-electron or --candidate-electron
+  // names another one (an earlier checkout's electron/), so main-process changes are measured too.
+  const electronSources = {baseline: argument('baseline-electron') || 'electron', candidate: argument('candidate-electron') || 'electron'};
+  const copyRuntime = async (from, to) => {
+    for (const entry of await fs.readdir(from, {withFileTypes: true})) {
+      if (entry.isDirectory() && !['native', 'installer'].includes(entry.name)) await copyRuntime(path.join(from, entry.name), path.join(to, entry.name));
+      else if (entry.isFile() && entry.name.endsWith('.cjs') && !entry.name.endsWith('.test.cjs')) {
+        await fs.mkdir(to, {recursive: true});
+        await fs.copyFile(path.join(from, entry.name), path.join(to, entry.name));
+      }
+    }
+  };
   for (const [name, dist] of [['baseline', baseline], ['candidate', candidate]]) {
     const root = path.join(directory, name);
-    await fs.mkdir(path.join(root, 'electron'), {recursive: true});
-    await fs.writeFile(path.join(root, 'electron/main.cjs'), main);
-    await fs.writeFile(path.join(root, 'electron/assets.cjs'), assets);
-    await fs.writeFile(path.join(root, 'electron/preload.cjs'), preload);
+    await copyRuntime(path.resolve(electronSources[name]), path.join(root, 'electron'));
+    // main.cjs requires electron-updater; link the installed dependencies.
+    await fs.symlink(path.resolve('node_modules'), path.join(root, 'node_modules'), 'dir');
     await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({name: 'shenzhen-startup-probe', version: packageMetadata.version, main: 'electron/main.cjs'}));
     await fs.symlink(path.resolve(dist), path.join(root, 'dist'), 'dir');
   }

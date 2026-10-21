@@ -1,5 +1,6 @@
 import {test, expect, type Page, type Download} from '@playwright/test';
 import {resolve} from 'node:path';
+import {geometryLocations, pickAt, showInspector} from './support/e2e-helpers';
 
 const fixture = resolve('fixtures/sample-assembly.step');
 type ErrorAwarePage = Page & {applicationErrors: string[]; expectedApplicationErrors?: RegExp[]};
@@ -109,75 +110,6 @@ test('graphics initialization failure stops the spinner and a later import retri
   await expect(page.locator('header')).toContainText('graphics-retry.stl');
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
-
-async function closeInspector(page: Page) {
-  const close = page.getByRole('button', {name: 'Close measurements', exact: true});
-  if (await close.isVisible()) await close.click();
-}
-
-async function showInspector(page: Page) {
-  await expect(page.locator('.model-badge')).toBeVisible();
-  const open = page.getByRole('button', {name: 'Show measurements', exact: true});
-  if (await open.isVisible()) await open.click();
-  await expect(page.locator('.inspector')).toBeVisible();
-}
-
-// Sample actual rendered pixels, then verify a raycast through the UI hover status.
-// This avoids assumptions about STEP placement, camera fit, tessellation or viewport size.
-async function geometryLocations(page: Page) {
-  await closeInspector(page);
-  await page.getByTitle('Top · Shift 5', {exact: true}).click();
-  await page.getByRole('button', {name: 'Fit model', exact: true}).click();
-  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  // Capture the composited canvas: its WebGL drawing buffer is discarded after
-  // presenting a frame when preserveDrawingBuffer is false.
-  const screenshot = await page.locator('canvas').screenshot();
-  const locations = await page.locator('canvas').evaluate(async (canvas, png) => {
-    const image = new Image();
-    image.src = `data:image/png;base64,${png}`;
-    await image.decode();
-    const width = image.naturalWidth, height = image.naturalHeight;
-    const sampler = document.createElement('canvas');
-    sampler.width = width;
-    sampler.height = height;
-    const context = sampler.getContext('2d')!;
-    context.drawImage(image, 0, 0);
-    const pixels = context.getImageData(0, 0, width, height).data;
-    const rect = canvas.getBoundingClientRect();
-    const points: {x: number; y: number}[] = [];
-    // Bright model surfaces are well above both the graphite background and grid.
-    for (let y = 65; y < rect.height - 85; y += 3) for (let x = 30; x < rect.width - 48; x += 3) {
-      const px = Math.floor(x / rect.width * width), py = Math.floor(y / rect.height * height);
-      const i = (py * width + px) * 4;
-      if (pixels[i] > 75 && pixels[i + 1] > 75 && pixels[i + 2] > 75) points.push({x: rect.x + x, y: rect.y + y});
-    }
-    return points;
-  }, screenshot.toString('base64'));
-  expect(locations.length, 'Model has visible rendered surfaces').toBeGreaterThan(10);
-  const picks: {x: number; y: number}[] = [];
-  // Pick separated regions along the longest screen axis, not neighbouring triangles.
-  const xs = locations.map(p => p.x), ys = locations.map(p => p.y);
-  const axis = Math.max(...xs) - Math.min(...xs) > Math.max(...ys) - Math.min(...ys) ? 'x' : 'y';
-  locations.sort((a, b) => a[axis] - b[axis]);
-  for (const fraction of [0.18, 0.8, 0.5]) {
-    const middle = Math.floor(locations.length * fraction);
-    for (let offset = 0; offset < 100; offset++) {
-      const p = locations[Math.min(middle + offset, locations.length - 1)];
-      await page.mouse.move(p.x, p.y);
-      // Hover picking runs once per animation frame; let its status commit.
-      await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-      if ((await page.locator('.status-main').textContent())?.includes(' · ')) {picks.push(p); break;}
-    }
-  }
-  expect(picks, 'Rendered locations raycast to model geometry').toHaveLength(3);
-  return picks;
-}
-
-async function pickAt(page: Page, location: {x: number; y: number}, mobile: boolean) {
-  await closeInspector(page);
-  if (mobile) await page.touchscreen.tap(location.x, location.y);
-  else await page.mouse.click(location.x, location.y);
-}
 
 async function downloadText(download: Download) {
   const stream = await download.createReadStream();
@@ -589,10 +521,11 @@ test('fixed view controls replace old preset and device settings after reload', 
   if (!isMobile) {
     await page.getByTitle('Help & shortcuts', {exact:true}).click();
     const help = page.locator('dialog[open]');
-    await expect(help).toContainText('Right-drag around the current view center');
+    await expect(help).toContainText('two-finger click-drag on a trackpad) around the current view center');
+    await expect(help).toContainText('right-drag or two-finger click-drag while holding');
     await expect(help).toContainText('Left-drag or middle-drag');
-    await expect(help).toContainText('two-finger trackpad swipe');
-    await expect(help).toContainText('Mouse wheel · pinch');
+    await expect(help).toContainText('two-finger trackpad swipe while holding');
+    await expect(help).toContainText('Two-finger trackpad swipe · mouse wheel · pinch');
     await expect(help).not.toContainText('Ctrl+middle-drag');
     await page.getByTitle('Close help', {exact:true}).click();
   }
@@ -666,4 +599,61 @@ test('a delayed recent-file read cannot replace a newer file open', async ({page
   });
   await expect(page.locator('header')).toContainText('newer.stl');
   await expect(page.locator('.model-badge')).toContainText('1 part');
+});
+
+// Count rendered model pixels: brighter than the background and grid lines.
+async function modelFootprint(page: Page) {
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const png = (await page.locator('.viewport-canvas canvas').screenshot()).toString('base64');
+  return page.evaluate(async source => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${source}`;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext('2d')!;
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let count = 0;
+    for (let i = 0; i < pixels.length; i += 4) if (pixels[i] + pixels[i + 1] + pixels[i + 2] > 330) count++;
+    return count;
+  }, png);
+}
+
+test('assembly selection centers without zooming and stays in sync with part picks', async ({page, isMobile}) => {
+  test.skip(isMobile, 'Phones show the assembly as a sheet over the viewport.');
+  await page.getByRole('button', {name: 'Sample model', exact: true}).click();
+  await expect(page.locator('.model-badge')).toContainText('4 parts');
+  const [location] = await geometryLocations(page);
+  const openAssembly = page.getByRole('button', {name: 'Show assembly', exact: true});
+  if (await openAssembly.isVisible()) await openAssembly.click();
+  const selected = page.locator('[role=treeitem][aria-selected=true]');
+  const before = await modelFootprint(page);
+  await page.getByRole('button', {name: 'Fastener · Ø10', exact: true}).first().click();
+  await expect(selected).toHaveCount(1);
+  await expect(selected).toContainText('Fastener');
+  await page.waitForTimeout(400);
+  const after = await modelFootprint(page);
+  expect(after / before, 'Selecting a row keeps the zoom').toBeGreaterThan(0.75);
+  expect(after / before, 'Selecting a row keeps the zoom').toBeLessThan(1.33);
+  await page.keyboard.press('Shift+F');
+  await page.waitForTimeout(100);
+  expect(await modelFootprint(page), 'Shift+F still zooms to the selection').toBeGreaterThan(after * 1.5);
+  await page.keyboard.press('Escape');
+  await expect(selected).toHaveCount(0);
+
+  await page.getByRole('button', {name: 'Fit model', exact: true}).first().click();
+  await page.getByRole('button', {name: 'Part', exact: true}).click();
+  await page.getByRole('button', {name: 'Collapse Precision mounting bracket', exact: true}).click();
+  await expect(page.getByRole('treeitem')).toHaveCount(1);
+  const framed = await modelFootprint(page);
+  await page.mouse.click(location.x, location.y);
+  await expect(selected).toHaveCount(1);
+  await expect(selected).not.toContainText('Precision mounting bracket');
+  await expect(selected).toBeInViewport();
+  expect(Math.abs(await modelFootprint(page) - framed) / framed, 'Picking a part keeps the view').toBeLessThan(0.25);
+  const box = (await page.locator('.viewport-canvas canvas').boundingBox())!;
+  await page.mouse.click(box.x + 24, box.y + box.height - 24);
+  await expect(selected).toHaveCount(0);
 });

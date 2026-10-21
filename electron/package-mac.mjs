@@ -7,7 +7,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
 const {
+  PRIVATE_RELEASE_OWNER,
   assertReleaseOwner,
+  assertReleaseAccess,
+  assertNoGitHubToken,
+  releaseAccessFor,
   validatePackagedFeed,
 } = require("./release-channel.cjs");
 const hash = (bytes, algorithm = "sha256", encoding = "hex") =>
@@ -95,9 +99,15 @@ async function fingerprint(directory, relative = "", result = {}) {
 export async function stageRuntime(
   staging,
   pkg,
-  { releaseOwner, forbiddenOwners = [], nativeScroll } = {},
+  {
+    releaseOwner,
+    forbiddenOwners = [],
+    nativeScroll,
+    friendsNative,
+    privateReleaseOwner = PRIVATE_RELEASE_OWNER,
+  } = {},
 ) {
-  assertReleaseOwner(releaseOwner);
+  const releaseAccess = releaseAccessFor(releaseOwner, privateReleaseOwner);
   for (const owner of forbiddenOwners) {
     assertReleaseOwner(owner);
     if (owner === releaseOwner)
@@ -202,6 +212,15 @@ export async function stageRuntime(
       await fs.readFile(target),
     );
   }
+  if (friendsNative) {
+    // Shenzhen Friends' client addon, built from the pinned client library (docs/FRIENDS.md).
+    const target = path.join(staging, "electron/native/friends-link.node");
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.copyFile(friendsNative, target);
+    nativeRuntimeFiles["electron/native/friends-link.node"] = nativeCodeHash(
+      await fs.readFile(target),
+    );
+  }
   const manifest = {
     name: pkg.name,
     version: pkg.version,
@@ -210,6 +229,7 @@ export async function stageRuntime(
     private: true,
     main: "electron/main.cjs",
     releaseOwner,
+    releaseAccess,
     dependencies,
   };
   await fs.writeFile(
@@ -257,6 +277,7 @@ export async function stageRuntime(
   }
   return {
     releaseOwner,
+    releaseAccess,
     packageLockSha256: hash(lockBytes),
     runtimeFiles: production,
     nativeRuntimeFiles,
@@ -310,6 +331,14 @@ export function verifyRuntimeArchive(
   const archiveFiles = asar.listPackage(archive);
   if (archiveFiles.includes("/.release-verification.json"))
     throw Error("Local release verification policy must not be packaged");
+  // No build ships a GitHub credential: public builds need none and private
+  // builds use the access each person connects in the app.
+  for (const file of archiveFiles)
+    if (!asar.statFile(archive, file.slice(1)).files)
+      assertNoGitHubToken(
+        asar.extractFile(archive, file.slice(1)).toString("latin1"),
+        file,
+      );
   const isolation =
     provenance.releaseOwner === undefined
       ? {}
@@ -321,6 +350,13 @@ export function verifyRuntimeArchive(
       assertReleaseOwner(provenance.releaseOwner)
     )
       throw Error("Packaged release owner does not match provenance");
+    if (
+      (metadata.releaseAccess !== undefined ||
+        provenance.releaseAccess !== undefined) &&
+      assertReleaseAccess(metadata.releaseAccess) !==
+        assertReleaseAccess(provenance.releaseAccess)
+    )
+      throw Error("Packaged release access does not match provenance");
   }
   for (const file of Object.keys(provenance.runtimeFiles))
     if (
@@ -412,13 +448,22 @@ async function verifyPackage(output, pkg, provenance) {
       ),
     ),
   );
-  const feed = yaml.load(
-    await fs.readFile(path.join(resources, "app-update.yml"), "utf8"),
+  const feedText = await fs.readFile(
+    path.join(resources, "app-update.yml"),
+    "utf8",
   );
-  validatePackagedFeed(feed, assertReleaseOwner(provenance.releaseOwner));
-  const update = yaml.load(
-    await fs.readFile(path.join(output, "latest-mac.yml"), "utf8"),
+  assertNoGitHubToken(feedText, "app-update.yml");
+  validatePackagedFeed(
+    yaml.load(feedText),
+    assertReleaseOwner(provenance.releaseOwner),
+    assertReleaseAccess(provenance.releaseAccess),
   );
+  const updateText = await fs.readFile(
+    path.join(output, "latest-mac.yml"),
+    "utf8",
+  );
+  assertNoGitHubToken(updateText, "latest-mac.yml");
+  const update = yaml.load(updateText);
   if (update.version !== pkg.version || !update.path?.endsWith(".zip"))
     throw Error("Mac updater metadata must reference the current ZIP version.");
   const expected = ["zip", "dmg"].map(
@@ -443,6 +488,11 @@ async function verifyPackage(output, pkg, provenance) {
       sha512: hash(data, "sha512", "base64"),
     });
   }
+  const { checkFriendsBundle } = require("./friends/package.cjs");
+  await checkFriendsBundle(
+    path.join(output, "mac-arm64", `${config.productName}.app`),
+    root,
+  );
   const zip = artifacts.find((file) => file.file.endsWith(".zip"));
   if (update.path !== zip.file || update.sha512 !== zip.sha512)
     throw Error("Mac updater legacy ZIP fingerprint is inconsistent.");
@@ -459,6 +509,38 @@ async function verifyPackage(output, pkg, provenance) {
     },
   };
 }
+/**
+ * The DMG electron-builder writes is zlib-compressed (UDZO; its schema allows no LZMA). Recompressed as ULMO (LZMA,
+ * macOS 10.15 and later; the app needs 13.0) the same volume is about a fifth smaller. The image is signed again with
+ * the identity that signed the app, and its entry in latest-mac.yml takes the new bytes. Its blockmap is made again
+ * after notarization (notarize-finalize.mjs).
+ */
+async function recompressDmg(output, pkg, identity) {
+  const yaml = require("js-yaml");
+  const dmg = path.join(output, `Shenzhen-3D-${pkg.version}-Apple-Silicon.dmg`);
+  const lzma = dmg.replace(/\.dmg$/, ".ulmo.dmg");
+  await run("hdiutil", ["convert", dmg, "-quiet", "-format", "ULMO", "-o", lzma]);
+  await fs.rename(lzma, dmg);
+  if (identity && identity !== "-")
+    await run("codesign", [
+      "--force",
+      "--timestamp",
+      "--sign",
+      /^[^:]+: /.test(identity) ? identity : `Developer ID Application: ${identity}`,
+      dmg,
+    ]);
+  else await run("codesign", ["--force", "--sign", "-", dmg]);
+  const bytes = await fs.readFile(dmg);
+  const feed = path.join(output, "latest-mac.yml");
+  const metadata = yaml.load(await fs.readFile(feed, "utf8"));
+  const entry = metadata.files?.find((file) => file.url === path.basename(dmg));
+  if (!entry) throw Error("latest-mac.yml lists no DMG");
+  entry.sha512 = hash(bytes, "sha512", "base64");
+  entry.size = bytes.length;
+  delete entry.blockMapSize;
+  await fs.writeFile(feed, yaml.dump(metadata, { lineWidth: -1, noRefs: true }));
+  await fs.rm(dmg + ".blockmap", { force: true });
+}
 async function main() {
   const releaseOwner = assertReleaseOwner(
     process.argv.find((arg) => arg.startsWith("--release-owner="))?.slice(16),
@@ -474,16 +556,54 @@ async function main() {
           await import("./build-native-scroll.mjs")
         ).buildNativeScroll({ arch: "arm64" })
       : undefined;
+  // Shenzhen Friends: the pinned helper must be built (scripts/friends/setup-friends.sh), and the client addon is
+  // built fresh from the same pinned sources for the app's architecture.
+  execFileSync(
+    path.join(root, "scripts/friends/setup-friends.sh"),
+    ["--check"],
+    {
+      stdio: "inherit",
+    },
+  );
+  const friendsNative = await (
+    await import("./friends/build-native.mjs")
+  ).buildFriendsNative({
+    arch: "arm64",
+    output: path.join(root, "artifacts/friends-native/arm64/friends-link.node"),
+  });
   const pkg = JSON.parse(
     await fs.readFile(path.join(root, "package.json"), "utf8"),
   );
+  // --version=X.Y.Z: a candidate of another version than package.json's (tools/release.sh's dry run of a throwaway
+  // version). The app, its feed and its file names carry it; provenance records both.
+  const committedVersion = pkg.version;
+  const versionOverride = process.argv
+    .find((arg) => arg.startsWith("--version="))
+    ?.slice(10);
+  if (versionOverride !== undefined) {
+    if (!/^\d+\.\d+\.\d+$/.test(versionOverride))
+      throw Error("--version must read X.Y.Z");
+    pkg.version = versionOverride;
+  }
   const stamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
-  const output = path.join(
-      root,
-      "artifacts/electron",
-      `${pkg.version}-${releaseOwner}-${stamp}`,
-    ),
+  // --output=<dir>: where the artifacts go (a new directory under artifacts/electron/), instead of a timestamped one.
+  const requestedOutput = process.argv
+    .find((arg) => arg.startsWith("--output="))
+    ?.slice(9);
+  const output = requestedOutput
+      ? path.resolve(requestedOutput)
+      : path.join(
+          root,
+          "artifacts/electron",
+          `${pkg.version}-${releaseOwner}-${stamp}`,
+        ),
     staging = path.join(output, "staging");
+  if (
+    requestedOutput &&
+    (!output.startsWith(path.join(root, "artifacts/electron") + path.sep) ||
+      (await exists(output)))
+  )
+    throw Error("--output must name a new directory under artifacts/electron");
   await fs.mkdir(staging, { recursive: true });
   await fs.cp(path.join(root, "dist"), path.join(staging, "dist"), {
     recursive: true,
@@ -492,9 +612,16 @@ async function main() {
     releaseOwner,
     forbiddenOwners,
     nativeScroll,
+    friendsNative,
+  });
+  const friends = await require("./friends/package.cjs").stageFriends(staging, {
+    repoRoot: root,
   });
   const provenance = {
     version: pkg.version,
+    ...(versionOverride !== undefined && versionOverride !== committedVersion
+      ? { packageJsonVersion: committedVersion }
+      : {}),
     sourceCommit: execFileSync("git", ["rev-parse", "HEAD"], {
       cwd: root,
       encoding: "utf8",
@@ -507,6 +634,7 @@ async function main() {
     ),
     builtAt: new Date().toISOString(),
     frontendFiles: await fingerprint(path.join(staging, "dist")),
+    friends,
     ...runtime,
   };
   const buildInfo = JSON.stringify(provenance, null, 2) + "\n";
@@ -528,15 +656,28 @@ async function main() {
     path.join(root, "electron-builder.cjs"),
     "--config.publish.owner",
     releaseOwner,
+    // Private feeds make the app send the connected credential; public feeds
+    // are read without one.
+    "--config.publish.private",
+    String(runtime.releaseAccess === "private"),
     "--config.directories.output",
     output,
     "--config.electronVersion",
     pkg.devDependencies.electron,
+    // --ad-hoc: a local test build, signed ad hoc (the app and the Friends helper) even where the release identity
+    // is in the keychain, to be signed afterwards or tried on this Mac only.
+    ...(process.argv.includes("--ad-hoc") ? ["--config.mac.identity=-"] : []),
     "--mac",
     "--arm64",
     "--publish",
     "never",
   ]);
+  const config = require("../electron-builder.cjs");
+  await recompressDmg(
+    output,
+    pkg,
+    process.argv.includes("--ad-hoc") ? "-" : config.mac.identity,
+  );
   const verification = await verifyPackage(output, pkg, provenance);
   await fs.writeFile(
     path.join(output, "build-info.json"),

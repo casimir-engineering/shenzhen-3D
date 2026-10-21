@@ -121,7 +121,12 @@ export default function UpdatesDialog({ onClose }: { onClose: () => void }) {
                 disabled={busy}
                 onClick={() => void run(() => api.download())}
               >
-                <ArrowDownToLine size={16} /> Download update
+                <ArrowDownToLine size={16} />{" "}
+                {!state.platform
+                  ? "Download update"
+                  : state.downloadOnly
+                    ? "Download"
+                    : `Update to ${state.availableVersion}`}
               </button>
             ) : state.status === "ready" ? (
               <button
@@ -129,7 +134,10 @@ export default function UpdatesDialog({ onClose }: { onClose: () => void }) {
                 disabled={pending}
                 onClick={() => void run(() => api.install())}
               >
-                <RefreshCw size={16} /> Restart & install
+                <RefreshCw size={16} />{" "}
+                {state.platform === "android"
+                  ? "Install update"
+                  : "Restart & install"}
               </button>
             ) : (
               <button
@@ -163,91 +171,92 @@ export default function UpdatesDialog({ onClose }: { onClose: () => void }) {
                 }
               />
             </label>
-            <label className="updates-toggle">
-              <span>
-                <strong>Include preview releases</strong>
-              </span>
-              <input
-                type="checkbox"
-                checked={state.prereleases}
-                disabled={locked || !state.supported}
-                onChange={(e) =>
-                  void run(() =>
-                    api.configure({ prereleases: e.target.checked }),
-                  )
-                }
-              />
-            </label>
-          </div>
-          <details className="updates-connection" open={!state.connected}>
-            <summary>
-              <KeyRound size={16} /> GitHub access{" "}
-              <span>{state.connected ? "Connected" : "Not connected"}</span>
-            </summary>
-            <label>
-              Release repository
-              <input
-                readOnly
-                value={`${state.repository} / shenzhen-3D`}
-              />
-            </label>
-            {state.connected ? (
-              <p className="updates-auth-row">
-                <button
-                  className="button"
-                  disabled={locked}
-                  onClick={() => void run(() => api.disconnect())}
-                >
-                  Disconnect
-                </button>
-              </p>
-            ) : (
-              <>
-                <p className="muted">
-                  Requires access to this private repository.
-                </p>
-                <button
-                  className="button"
+            {!state.platform && (
+              <label className="updates-toggle">
+                <span>
+                  <strong>Include preview releases</strong>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={state.prereleases}
                   disabled={locked || !state.supported}
-                  onClick={() => void run(() => api.useGitHubCLI())}
-                >
-                  <KeyRound size={15} /> Use GitHub CLI login
-                </button>
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    const value = token;
-                    setToken("");
-                    void run(() => api.connect(value));
-                  }}
-                >
-                  <label htmlFor="update-token">
-                    Access token
-                    <input
-                      id="update-token"
-                      type="password"
-                      autoComplete="off"
-                      spellCheck={false}
-                      value={token}
-                      placeholder="GitHub access token"
-                      disabled={locked}
-                      onChange={(event) => setToken(event.target.value)}
-                    />
-                  </label>
-                  <small>
-                    Requires Contents: read permission for this repository.
-                  </small>
+                  onChange={(e) =>
+                    void run(() =>
+                      api.configure({ prereleases: e.target.checked }),
+                    )
+                  }
+                />
+              </label>
+            )}
+          </div>
+          {state.access === "private" && (
+            <details className="updates-connection" open={!state.connected}>
+              <summary>
+                <KeyRound size={16} /> GitHub access{" "}
+                <span>{state.connected ? "Connected" : "Not connected"}</span>
+              </summary>
+              <label>
+                Release repository
+                <input readOnly value={`${state.repository} / shenzhen-3D`} />
+              </label>
+              {state.connected ? (
+                <p className="updates-auth-row">
                   <button
                     className="button"
-                    type="submit"
-                    disabled={locked || !token.trim() || !state.supported}
+                    disabled={locked}
+                    onClick={() => void run(() => api.disconnect())}
                   >
-                    Connect
+                    Disconnect
                   </button>
-                </form>
-              </>
-            )}
-          </details>
+                </p>
+              ) : (
+                <>
+                  <p className="muted">
+                    Requires access to this private repository.
+                  </p>
+                  <button
+                    className="button"
+                    disabled={locked || !state.supported}
+                    onClick={() => void run(() => api.useGitHubCLI())}
+                  >
+                    <KeyRound size={15} /> Use GitHub CLI login
+                  </button>
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const value = token;
+                      setToken("");
+                      void run(() => api.connect(value));
+                    }}
+                  >
+                    <label htmlFor="update-token">
+                      Access token
+                      <input
+                        id="update-token"
+                        type="password"
+                        autoComplete="off"
+                        spellCheck={false}
+                        value={token}
+                        placeholder="GitHub access token"
+                        disabled={locked}
+                        onChange={(event) => setToken(event.target.value)}
+                      />
+                    </label>
+                    <small>
+                      Requires Contents: read permission for this repository.
+                    </small>
+                    <button
+                      className="button"
+                      type="submit"
+                      disabled={locked || !token.trim() || !state.supported}
+                    >
+                      Connect
+                    </button>
+                  </form>
+                </>
+              )}
+            </details>
+          )}
         </>
       )}
       <div className="dialog-footer">

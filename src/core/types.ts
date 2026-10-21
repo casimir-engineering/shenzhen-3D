@@ -49,6 +49,8 @@ export interface ModelDocument {
   exactModelId?: number;
   exactWorkerGeneration?: number;
   is2D: boolean;
+  /** An early view of a large assembly while the rest is still loading. */
+  loading?: boolean;
 }
 export interface Pick {
   id: string;

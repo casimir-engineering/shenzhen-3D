@@ -12,12 +12,19 @@ export interface UpdateState {
     | "needs-auth";
   automatic: boolean;
   repository: string;
+  /** "public" releases need no GitHub access; "private" ones do. */
+  access: "public" | "private";
   prereleases: boolean;
   connected: boolean;
   availableVersion?: string;
   progress?: number;
   message: string;
   lastChecked?: number;
+  /** Android: APKs that Android installs after the person confirms. Windows, Linux and iOS
+   * (src-tauri/src/app_updates.rs): one release channel, and Update to X does it all. */
+  platform?: "android" | "windows" | "linux" | "ios";
+  /** The newer version is a package to download and install by hand (Linux deb and rpm). */
+  downloadOnly?: boolean;
 }
 export interface UpdateBridge {
   getState(): Promise<UpdateState>;

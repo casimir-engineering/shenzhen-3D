@@ -5,7 +5,11 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { createUpdateManager } = require("./update-manager.cjs");
-const { PrivateReleaseProvider } = require("./github-update-provider.cjs");
+const {
+  PublicReleaseProvider,
+  PrivateReleaseProvider,
+} = require("./github-update-provider.cjs");
+const { releaseAccessFor } = require("./release-channel.cjs");
 
 const TEST_TOKEN = "unit-test-credential-not-a-real-github-token";
 const until = async (condition) => {
@@ -73,11 +77,13 @@ async function fixture(t, changes = {}) {
     safeStorage: storage,
     platform: "darwin",
     releaseOwner: "fixture-primary",
+    // Most cases exercise a build whose releases are private.
+    releaseAccess: "private",
     readPackagedFeed: async () => ({
       provider: "github",
       owner: changes.releaseOwner ?? "fixture-primary",
       repo: "shenzhen-3D",
-      private: true,
+      private: (changes.releaseAccess ?? "private") === "private",
       channel: "latest",
     }),
     onState: (state) => states.push(state),
@@ -617,4 +623,178 @@ test("missing authoritative build owner cannot initialize an updater", async (t)
   assert.match(f.manager.getState().message, /not configured/);
   assert.equal(f.calls.auth.length, 0);
   assert.equal(f.calls.creates, 0);
+});
+
+const PUBLIC_BUILD = {
+  releaseOwner: "casimir-engineering",
+  releaseAccess: "public",
+};
+test("public build checks and downloads without GitHub access or credentials", async (t) => {
+  const commands = [];
+  const f = await fixture(t, {
+    ...PUBLIC_BUILD,
+    execFile: (...args) => commands.push(args),
+  });
+  assert.equal(f.manager.getState().access, "public");
+  assert.equal(f.manager.getState().message, "");
+  const checked = await f.manager.check();
+  assert.equal(checked.status, "available");
+  assert.equal(checked.connected, false);
+  assert.deepEqual(f.updater.feed, {
+    provider: "custom",
+    updateProvider: PublicReleaseProvider,
+    owner: "casimir-engineering",
+    repo: "shenzhen-3D",
+  });
+  await f.manager.download();
+  assert.equal(f.manager.getState().status, "ready");
+  await f.manager.install();
+  assert.deepEqual(f.calls.installs, [[false, true]]);
+  assert.equal(f.calls.auth.length, 0);
+  assert.equal(commands.length, 0);
+  assert.equal(f.calls.encrypted, 0);
+});
+test("public build has no GitHub access step", async (t) => {
+  const commands = [];
+  const f = await fixture(t, {
+    ...PUBLIC_BUILD,
+    execFile: (...args) => commands.push(args),
+  });
+  await f.manager.connect(TEST_TOKEN);
+  await f.manager.useGitHubCLI();
+  await f.manager.disconnect();
+  assert.equal(f.manager.getState().connected, false);
+  assert.equal(f.manager.getState().status, "idle");
+  assert.equal(f.calls.auth.length, 0);
+  assert.equal(f.calls.encrypted, 0);
+  assert.equal(commands.length, 0);
+  await f.manager.configure({ automatic: false });
+  assert.equal(f.manager.getState().status, "idle");
+  const saved = JSON.parse(
+    await fs.readFile(path.join(f.directory, "updates.json"), "utf8"),
+  );
+  assert.equal("encryptedToken" in saved, false);
+});
+test("public build drops GitHub access saved by an earlier private build without decrypting it", async (t) => {
+  const f = await fixture(t, {
+    ...PUBLIC_BUILD,
+    initialSettings: {
+      repository: "casimir-engineering",
+      automatic: false,
+      prereleases: true,
+      lastChecked: 1234,
+      encryptedToken: "earlier-private-build-ciphertext",
+    },
+  });
+  await f.manager.configure({});
+  assert.equal(f.calls.decrypted, 0);
+  assert.equal(f.manager.getState().connected, false);
+  assert.equal(f.manager.getState().automatic, false);
+  assert.equal(f.manager.getState().lastChecked, 1234);
+  assert.deepEqual(
+    JSON.parse(await fs.readFile(path.join(f.directory, "updates.json"))),
+    {
+      repository: "casimir-engineering",
+      automatic: false,
+      prereleases: true,
+      lastChecked: 1234,
+    },
+  );
+  await f.manager.check();
+  assert.equal(f.updater.feed.token, undefined);
+});
+// UPDATES.md, "Moving a private channel to the public one": a private owner's release carries the public build,
+// which then starts with the private build's profile.
+test("public build installed over another owner's private build moves to its own public channel", async (t) => {
+  const f = await fixture(t, {
+    ...PUBLIC_BUILD,
+    initialSettings: {
+      repository: "fixture-private",
+      automatic: true,
+      prereleases: true,
+      lastChecked: 1234,
+      encryptedToken: "private-owner-ciphertext",
+    },
+  });
+  const state = f.manager.getState();
+  await f.manager.configure({});
+  assert.equal(f.calls.decrypted, 0);
+  assert.equal(state.access, "public");
+  assert.equal(f.manager.getState().repository, "casimir-engineering");
+  assert.equal(f.manager.getState().connected, false);
+  assert.equal(f.manager.getState().status, "idle");
+  // The other channel's last check does not delay this one's first check.
+  assert.equal(f.manager.getState().lastChecked, undefined);
+  assert.deepEqual(
+    JSON.parse(await fs.readFile(path.join(f.directory, "updates.json"))),
+    { repository: "casimir-engineering", automatic: true, prereleases: true },
+  );
+  await assert.rejects(
+    f.manager.configure({ repository: "fixture-private" }),
+    /fixed to this build/,
+  );
+  await f.manager.check();
+  assert.equal(f.calls.auth.length, 0);
+  assert.equal(f.updater.feed.updateProvider, PublicReleaseProvider);
+  assert.equal(f.updater.feed.owner, "casimir-engineering");
+  assert.equal(f.updater.feed.token, undefined);
+  assert.equal(f.manager.getState().availableVersion, "0.1.5");
+});
+test("public build reports rate limits and denials as ordinary failures", async (t) => {
+  for (const statusCode of [401, 403]) {
+    const f = await fixture(t, PUBLIC_BUILD);
+    f.updater.checkForUpdates = async () => {
+      const error = Error(`${statusCode} Forbidden`);
+      error.statusCode = statusCode;
+      throw error;
+    };
+    await f.manager.check();
+    assert.equal(f.manager.getState().status, "error");
+    assert.doesNotMatch(f.manager.getState().message, /GitHub|Connect/);
+  }
+});
+test("public build refuses a private feed and a private build refuses a public one", async (t) => {
+  for (const [releaseAccess, feedPrivate] of [
+    ["public", true],
+    ["private", false],
+  ]) {
+    const f = await fixture(t, {
+      releaseOwner: "casimir-engineering",
+      releaseAccess,
+      readPackagedFeed: async () => ({
+        provider: "github",
+        owner: "casimir-engineering",
+        repo: "shenzhen-3D",
+        private: feedPrivate,
+        channel: "latest",
+      }),
+    });
+    await f.manager.check();
+    assert.equal(f.manager.getState().supported, false);
+    assert.equal(f.calls.creates, 0);
+  }
+});
+test("private-owner build still requires and sends the connected credential", async (t) => {
+  const f = await fixture(t, {
+    releaseOwner: "fixture-private",
+    releaseAccess: "private",
+  });
+  assert.equal(f.manager.getState().access, "private");
+  assert.equal((await f.manager.check()).status, "needs-auth");
+  assert.equal(f.calls.creates, 0);
+  await f.manager.connect(TEST_TOKEN);
+  assert.equal(
+    f.calls.auth[0].options.headers.Authorization,
+    `Bearer ${TEST_TOKEN}`,
+  );
+  await f.manager.check();
+  assert.equal(f.updater.feed.updateProvider, PrivateReleaseProvider);
+  assert.equal(f.updater.feed.token, TEST_TOKEN);
+  assert.equal(f.updater.feed.private, true);
+});
+test("access defaults to this source's setting for the build owner", async (t) => {
+  for (const releaseOwner of ["casimir-engineering", "fixture-private"]) {
+    const f = await fixture(t, { releaseOwner, releaseAccess: undefined });
+    assert.equal(f.manager.getState().access, releaseAccessFor(releaseOwner));
+  }
 });

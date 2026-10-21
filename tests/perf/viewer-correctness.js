@@ -130,6 +130,120 @@ async function screenshotPixels(blob) {
   return flipped;
 }
 
+function plateFixture() {
+  // A long diagonal plate carrying many small parts, like a populated strip.
+  const turn = new T.Quaternion().setFromEuler(new T.Euler(0, 0, 0.6));
+  const at = (x, y, z) => new T.Matrix4().compose(new T.Vector3(x, y, z).applyQuaternion(turn), turn, new T.Vector3(1, 1, 1));
+  const material = color => new T.MeshStandardMaterial({ color, metalness: 0.4, roughness: 0.4 });
+  const boxes = [], pins = [];
+  for (let i = 0; i < 80; i++) {
+    const x = -940 + i * 23.5, y = ((i % 5) - 2) * 20;
+    boxes.push(at(x, y, 5));
+    pins.push(at(x + 6, y + 10, 7));
+  }
+  return documentFor([
+    { id: 'plate', geometry: new T.BoxGeometry(2000, 120, 4), materials: [material(0xd8c06a)], transforms: [at(0, 0, 0)] },
+    { id: 'box', geometry: new T.BoxGeometry(8, 8, 6), materials: [material(0xeeeeee)], transforms: boxes },
+    { id: 'pin', geometry: new T.CylinderGeometry(3, 3, 10, 24), materials: [material(0x888888)], transforms: pins },
+  ]);
+}
+
+async function checkPartFitDepth() {
+  const doc = plateFixture();
+  viewer.setModel(doc);
+  options({ hidden: new Set(), explode: 0, section: false, edges: false, grid: true, opacity: 1, navigationDetail: 'full', theme: 'dark' });
+  for (const orthographic of [false, true]) {
+    viewer.setProjection(orthographic);
+    viewer.preset('iso');
+    viewer.fit();
+    const camera = viewer.camera;
+    const pose = { position: camera.position.clone(), target: viewer.controls.target.clone(), frustum: orthographic ? [camera.left, camera.right, camera.top, camera.bottom, camera.zoom] : [] };
+    const assembly = pixels();
+    viewer.fit(['box-40']);
+    // Return to the assembly framing, as a viewer does by zooming back out.
+    // An orthographic view keeps the camera distance the part fit chose.
+    const distance = orthographic ? viewer.camera.position.distanceTo(viewer.controls.target) : pose.position.distanceTo(pose.target);
+    const direction = pose.position.clone().sub(pose.target).normalize();
+    viewer.controls.target.copy(pose.target);
+    viewer.camera.position.copy(pose.target).addScaledVector(direction, distance);
+    if (orthographic) {
+      [viewer.camera.left, viewer.camera.right, viewer.camera.top, viewer.camera.bottom, viewer.camera.zoom] = pose.frustum;
+      viewer.camera.updateProjectionMatrix();
+    }
+    viewer.controls.update();
+    const returned = difference(assembly, pixels());
+    check(returned.fraction < 0.002, 'Fitting a part and returning to the assembly view renders the assembly unchanged', { orthographic, near: viewer.camera.near, far: viewer.camera.far, ...returned });
+  }
+  viewer.setProjection(false);
+  return doc;
+}
+
+function partScreenBox(doc, id, margin) {
+  const part = doc.parts.find(item => item.id === id);
+  const box = doc.geometries.get(part.geometryId).geometry.boundingBox.clone().applyMatrix4(new T.Matrix4().fromArray(part.matrix));
+  const gl = viewer.renderer.getContext(), screen = new T.Box2();
+  for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+    const p = new T.Vector3(x, y, z).project(viewer.camera);
+    screen.expandByPoint(new T.Vector2((p.x + 1) / 2 * gl.drawingBufferWidth, (p.y + 1) / 2 * gl.drawingBufferHeight));
+  }
+  return { center: box.getCenter(new T.Vector3()), screen: screen.expandByScalar(margin), width: gl.drawingBufferWidth };
+}
+
+function changedOutside(a, b, screen, width) {
+  let outside = 0;
+  for (let i = 0; i < a.length; i += 4) {
+    const delta = Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2]));
+    const pixel = i / 4, point = new T.Vector2(pixel % width, Math.floor(pixel / width));
+    if (delta > 3 && !screen.containsPoint(point)) outside++;
+  }
+  return outside;
+}
+
+async function checkPartSelection(doc) {
+  viewer.setProjection(false);
+  viewer.preset('iso');
+  viewer.fit();
+  const id = 'box-40';
+  const distance = viewer.camera.position.distanceTo(viewer.controls.target);
+  const quaternion = viewer.camera.quaternion.clone();
+  viewer.centerOnParts([id], false);
+  const { center } = partScreenBox(doc, id, 0);
+  const projected = center.clone().project(viewer.camera);
+  check(viewer.controls.target.distanceTo(center) < 1e-6 && Math.abs(projected.x) < 1e-6 && Math.abs(projected.y) < 1e-6, 'Centering puts the part center at the view center', { projected: projected.toArray() });
+  check(Math.abs(viewer.camera.position.distanceTo(viewer.controls.target) - distance) < 1e-6 && viewer.camera.quaternion.angleTo(quaternion) < 1e-9, 'Centering keeps the zoom distance and orientation');
+  const marker = host.querySelector('.selection-marker');
+  viewer.selectParts([id]);
+  pixels();
+  check(!marker.hidden, 'A part too small to see at assembly zoom is marked on screen');
+  viewer.selectParts([]);
+  pixels();
+  check(marker.hidden, 'The marker disappears with the selection');
+  viewer.zoom(40);
+  for (const theme of ['dark', 'light']) {
+    options({ theme });
+    const plain = pixels();
+    viewer.selectParts([id]);
+    const selected = pixels();
+    const { screen, width } = partScreenBox(doc, id, 3);
+    const visible = difference(plain, selected, 12);
+    check(visible.changed > 40, 'Selected part is visibly emphasized', { theme, ...visible });
+    check(changedOutside(plain, selected, screen, width) === 0, 'Selection emphasis leaves every other part and the background untouched', { theme });
+    viewer.selectParts([]);
+    check(difference(plain, pixels()).changed === 0, 'Clearing the selection restores the original frame', { theme });
+  }
+  check(marker.hidden, 'Parts large enough to see need no marker');
+  viewer.zoom(1 / 40);
+  options({ theme: 'dark' });
+  const before = viewer.controls.target.clone();
+  viewer.centerOnParts(['box-0']);
+  await raf();
+  const moving = viewer.controls.target.clone();
+  await new Promise(resolve => setTimeout(resolve, 400));
+  await raf();
+  const goal = partScreenBox(doc, 'box-0', 0).center;
+  check(!moving.equals(goal) && viewer.controls.target.distanceTo(goal) < 1e-6 && Math.abs(viewer.camera.position.distanceTo(viewer.controls.target) - distance) < 1e-6, 'Centering glides to the part without changing zoom', { from: before.toArray(), to: goal.toArray() });
+}
+
 async function run() {
   const gl = viewer.renderer.getContext();
   const debug = gl.getExtension('WEBGL_debug_renderer_info');
@@ -266,6 +380,8 @@ async function run() {
   check(boundsSource.boundingSphere.center.x > 990 && boundsSource.boundingSphere.radius < 10, 'Hidden distant occurrences do not expand the visible navigation bounds', { center: boundsSource.boundingSphere.center.toArray(), radius: boundsSource.boundingSphere.radius });
   const directionalStretch = new T.Vector3(Math.SQRT1_2, Math.SQRT1_2, 0).applyMatrix3(new T.Matrix3().setFromMatrix4(shear)).length();
   check(boundsSource.userData.maxInstanceScale >= directionalStretch, 'Shear error scale bounds actual directional stretch', { bound: boundsSource.userData.maxInstanceScale, directionalStretch });
+
+  await checkPartSelection(await checkPartFitDepth());
 
   // Compile the actual sample-model edge/clipping shader on this GPU too.
   viewer.setModel(createDemo());

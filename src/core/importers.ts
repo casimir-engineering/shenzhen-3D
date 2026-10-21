@@ -3,18 +3,22 @@ import { cad } from './cad-client';
 import { sourceUnit } from './units';
 import type {ModelDocument, GeometryData, Part, TreeNode, Unit, CadResult} from './types';
 import { SUPPORTED } from './formats';
+import { SPLIT_MIN_BYTES } from './step/split-threshold';
 export { SUPPORTED, ACCEPT } from './formats';
 const ext=(name:string)=>name.split('.').pop()!.toLowerCase();
 const material=(color:T.ColorRepresentation=0xb8c7cc)=>new T.MeshStandardMaterial({color,roughness:.48,metalness:.12,side:T.DoubleSide});
-export function fromCad(result:CadResult,name:string):ModelDocument {
+/** `shared` lets successive views of a loading assembly reuse built geometry. */
+export function fromCad(result:CadResult,name:string,shared?:WeakMap<object,GeometryData>):ModelDocument {
  const geometries=new Map<string,GeometryData>();
  result.geometries?.forEach(g=>{
+  const exactHandle=result.exactGeometryBindings?.find(b=>b.geometryId===g.id)?.exactShapeHandle;
+  const known=shared?.get(g.positions);if(known){geometries.set(g.id,{...known,id:g.id,exactHandle});return}
   const geometry=new T.BufferGeometry();geometry.setAttribute('position',new T.BufferAttribute(g.positions,3));geometry.setAttribute('normal',new T.BufferAttribute(g.normals,3));geometry.setIndex(new T.BufferAttribute(g.indices,1));
   const materials:T.Material[]=[];const colors=new Map<string,number>();
   const getMaterial=(c:typeof g.color)=>{const color=c||{r:.70,g:.76,b:.8};const key=JSON.stringify(color);if(colors.has(key))return colors.get(key)!;const m=material(new T.Color(color.r,color.g,color.b));m.opacity=color.opacity??1;m.transparent=m.opacity<1;colors.set(key,materials.length);materials.push(m);return materials.length-1};
   for(const f of g.faces)geometry.addGroup(f.firstIndex,f.indexCount,getMaterial(f.color||g.color));
   if(!materials.length)materials.push(material());
-  geometries.set(g.id,{id:g.id,geometry,materials,topology:g,exactHandle:result.exactGeometryBindings?.find(b=>b.geometryId===g.id)?.exactShapeHandle});
+  const data={id:g.id,geometry,materials,topology:g,exactHandle};geometries.set(g.id,data);shared?.set(g.positions,data);
  });
  const parts:Part[]=[];
  const walk=(node:NonNullable<CadResult['rootNodes']>[number],parent:T.Matrix4,path:string[]):TreeNode=>{
@@ -40,11 +44,19 @@ export function fromObject(root:T.Object3D,name:string,unit:Unit='mm',warnings:s
  };
  return {name,format:ext(name),geometries,parts,roots:[walk(root,[])],unit,sourceUnit:unit,warnings,importMs:0,bytes:0,is2D};
 }
-export async function importFiles(files:File[],quality:string,onProgress:(s:string)=>void):Promise<ModelDocument>{
+export async function importFiles(files:File[],quality:string,onProgress:(s:string)=>void,onPartial?:(doc:ModelDocument)=>void):Promise<ModelDocument>{
  const file=files.find(f=>SUPPORTED.includes(ext(f.name)));if(!file)throw new Error('Choose a supported 3D model or 2D drawing.');
  const start=performance.now();const format=ext(file.name);onProgress('Reading '+file.name);const buffer=await file.arrayBuffer();let doc:ModelDocument;
  if(['step','stp','iges','igs','brep','brp'].includes(format)){
-  onProgress('Reading CAD geometry and assembly…');const result=await cad.open(({stp:'step',igs:'iges',brp:'brep'} as Record<string,string>)[format]||format,buffer,quality);doc=fromCad(result,file.name);
+  let source:ArrayBuffer|undefined=buffer,split:ModelDocument|undefined;
+  if((format==='step'||format==='stp')&&file.size>=SPLIT_MIN_BYTES){
+   // Large assemblies are read product by product; see docs/PERFORMANCE.md.
+   const {importSplitStep}=await import('./step/split-import');
+   const outcome=await importSplitStep(buffer,{name:file.name,quality,onProgress,onPartial});
+   if('fallback' in outcome)source=outcome.fallback;else split=outcome;
+  }
+  if(split)doc=split;
+  else{onProgress('Reading CAD geometry and assembly…');const result=await cad.open(({stp:'step',igs:'iges',brp:'brep'} as Record<string,string>)[format]||format,source!,quality);doc=fromCad(result,file.name);}
  }else if(format==='dxf'||format==='dwg'){
   onProgress('Reading drawing entities…');const {importDrawing}=await import('./drawing');doc=await importDrawing(buffer,file.name,format);
  }else{
@@ -76,7 +88,7 @@ export async function importFiles(files:File[],quality:string,onProgress:(s:stri
    object.name=file.name;doc=fromObject(object,file.name,unit,warnings,format==='svg');if(sourceDescription)doc.sourceUnit=sourceDescription;
   }finally{setTimeout(()=>urls.forEach(u=>URL.revokeObjectURL(u)),30000)}
  }
- if(!doc.parts.length)throw new Error('No displayable geometry found in this file.');
+ if(!doc.parts.length){disposeDocument(doc);throw new Error('No displayable geometry found in this file.')}
  doc.importMs=performance.now()-start;doc.bytes=file.size;return doc;
 }
 function parseOFF(text:string){const words=text.replace(/#[^\n]*/g,'').trim().split(/\s+/);if(words.shift()!=='OFF')throw new Error('Only plain OFF files are supported.');const count=Number(words.shift()),faces=Number(words.shift());words.shift();if(!Number.isSafeInteger(count)||count<0||count>10000000)throw new Error('Invalid OFF vertex count');const positions=words.splice(0,count*3).map(Number),indices:number[]=[];for(let f=0;f<faces;f++){const n=Number(words.shift());const face=words.splice(0,n).map(Number);for(let i=1;i<n-1;i++)indices.push(face[0],face[i],face[i+1])}const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(positions,3));g.setIndex(indices);g.computeVertexNormals();return new T.Mesh(g,material())}

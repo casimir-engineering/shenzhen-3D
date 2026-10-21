@@ -10,6 +10,16 @@ import {
 import type { UpdateState } from "./core/updates";
 import type { Vector3 } from "three";
 import { createId } from "./core/id";
+import "./core/safe-area";
+import "./core/keyboard";
+import { CommandPalette, type Command } from "./components/CommandPalette";
+import {
+  friendsRequests,
+  friendsShortcutLabel,
+  isFriendsShortcut,
+  isPaletteShortcut,
+  shortcutLabel,
+} from "./friends/requests";
 import {
   Box,
   Upload,
@@ -53,6 +63,10 @@ import {
 } from "lucide-react";
 import { Viewport } from "./components/Viewport";
 import { AssemblyTree } from "./components/AssemblyTree";
+import {
+  selectionForPart,
+  type PartSelection,
+} from "./core/assembly-selection";
 import { ReviewPanel } from "./components/ReviewPanel";
 import { ReviewPins } from "./components/ReviewPins";
 import {
@@ -90,6 +104,17 @@ import type {
 } from "./core/types";
 type ModelRuntime = typeof import("./core/model-runtime");
 const UpdatesDialog = lazy(() => import("./components/UpdatesDialog"));
+// Shenzhen Friends loads only where its bridge exists (the Mac app), a second after the first paint.
+const FriendsHeader = lazy(() =>
+  import("./friends/FriendsButton").then((module) => ({
+    default: module.FriendsHeader,
+  })),
+);
+const FriendsSettingsSlot = lazy(() =>
+  import("./friends/FriendsButton").then((module) => ({
+    default: module.FriendsSettingsSlot,
+  })),
+);
 // Failed chunk fetches can be retried by opening a file again.
 let runtimePromise: Promise<ModelRuntime> | undefined;
 const loadRuntime = () =>
@@ -161,6 +186,8 @@ function App() {
   const docRef = useRef<ModelDocument | undefined>(undefined);
   docRef.current = doc;
   const viewer = useRef<Viewer | undefined>(undefined);
+  // Set while an assembly fills in, so later views keep the camera.
+  const keepView = useRef(false);
   const [ready, setReady] = useState(false);
   const [runtime, setRuntime] = useState<ModelRuntime>();
   const [viewerAttempt, setViewerAttempt] = useState(0);
@@ -191,6 +218,7 @@ function App() {
     [pair, setPair] = useState<ExactPair>();
   const [saved, setSaved] = useState<Measurement[]>([]),
     [selectedPart, setSelectedPart] = useState<string>(),
+    [partSelection, setPartSelection] = useState<PartSelection>(),
     [hidden, setHidden] = useState<Set<string>>(new Set());
   const [unit, setUnit] = useState<Unit>(preferences.current.unit || "mm"),
     [source, setSource] = useState<Unit>("mm"),
@@ -295,6 +323,7 @@ function App() {
     setMeasuring(false);
     setPlacingNote(false);
     setNoteAnchor(undefined);
+    setPartSelection(undefined);
     viewer.current?.highlight([]);
     viewer.current?.setOverlay({ points: [] });
   }, []);
@@ -318,12 +347,16 @@ function App() {
   );
   useEffect(() => {
     if (ready && doc) {
-      viewer.current!.setModel(doc);
+      viewer.current!.setModel(doc, keepView.current);
+      keepView.current = false;
       setDimensions(
         viewer.current!.getBounds().getSize(new runtime!.Vector3()),
       );
     }
   }, [doc, ready]);
+  useEffect(() => {
+    if (ready) viewer.current?.selectParts(partSelection?.ids ?? []);
+  }, [partSelection, doc, ready]);
   useEffect(() => {
     if (ready)
       viewer.current!.applyOptions({
@@ -425,6 +458,7 @@ function App() {
           : undefined;
         if (generation !== loadEpoch.current) return;
         const modelFiles = project?.files ?? files;
+        let shown = false;
         const model = project?.demo
           ? engine.createDemo()
           : await engine.importFiles(
@@ -433,6 +467,14 @@ function App() {
               (message) => {
                 if (generation === loadEpoch.current) setLoading(message);
               },
+              project
+                ? undefined
+                : (partial) => {
+                    if (generation !== loadEpoch.current) return;
+                    keepView.current = shown;
+                    shown = true;
+                    install(partial);
+                  },
             );
         let restored;
         try {
@@ -449,6 +491,7 @@ function App() {
         }
         sourceFiles.current = modelFiles;
         demoProject.current = project?.demo ?? false;
+        keepView.current = shown;
         install(model);
         if (restored) {
           setNotes(restored.notes);
@@ -480,8 +523,10 @@ function App() {
           });
         if (window.innerWidth < 900) setLeft(false);
       } catch (e) {
-        if (generation === loadEpoch.current)
+        if (generation === loadEpoch.current) {
+          dropLoadingView();
           setError(e instanceof Error ? e.message : String(e));
+        }
       } finally {
         if (generation === loadEpoch.current) setLoading("");
       }
@@ -609,6 +654,7 @@ function App() {
   const selectNote = (note: ReviewNote) => {
     setSelectedNote(note.id);
     setSelectedPart(note.anchor.partId);
+    setPartSelection(undefined);
     setPlacingNote(false);
     setMode(
       note.scope === "part"
@@ -637,25 +683,76 @@ function App() {
     viewer.current?.highlight([note.anchor]);
     viewer.current?.focusPick(note.anchor);
   };
+  // The open model as a project file: the original files, notes and saved measurements.
+  const buildProject = async () => {
+    if (!doc) throw Error("No open model");
+    const { exportProject } = await import("./core/project-file");
+    const blob = await exportProject({
+      doc,
+      files: sourceFiles.current.slice(),
+      notes,
+      measurements: saved,
+      source,
+      unit,
+      scale,
+      quality,
+      demo: demoProject.current,
+    });
+    return { blob, name: doc.name.replace(/\.[^.]+$/, "") + ".sz3d" };
+  };
+  const projectName = doc ? doc.name.replace(/\.[^.]+$/, "") + ".sz3d" : null;
+  const [friendsLoaded, setFriendsLoaded] = useState(false);
+  // Whether Friends runs here and is on: its commands and its shortcut's line in Help show only then.
+  const [friendsOn, setFriendsOn] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const friendsState = useRef({ loaded: false, on: false });
+  friendsState.current = { loaded: friendsLoaded, on: friendsOn };
+  // Cmd/Ctrl+K and Cmd/Ctrl+J work while typing too (Cmd+J closes Friends from its own search field), so they are
+  // handled before the shortcuts below, which leave text fields alone. Neither acts over another dialog.
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat) return;
+      const palette = isPaletteShortcut(event);
+      const friends =
+        isFriendsShortcut(event) && Boolean(window.shenzhenFriends);
+      if (!palette && !friends) return;
+      event.preventDefault();
+      if (document.querySelector("dialog[open]")) return;
+      if (palette) setPaletteOpen(true);
+      else if (!friendsState.current.loaded) {
+        setFriendsLoaded(true); // Cmd+J in the first second after launch loads Friends at once.
+        friendsRequests.request("toggle");
+      } else if (friendsState.current.on) friendsRequests.request("toggle");
+    };
+    window.addEventListener("keydown", key, true);
+    return () => window.removeEventListener("keydown", key, true);
+  }, []);
+  useEffect(() => {
+    if (!window.shenzhenFriends) return;
+    let timer: number | undefined;
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        timer = window.setTimeout(() => setFriendsLoaded(true), 1000);
+      }),
+    );
+    return () => window.clearTimeout(timer);
+  }, []);
+  const [settingsSeen, setSettingsSeen] = useState(false);
+  useEffect(() => {
+    const dialog = settings.current;
+    if (!dialog || settingsSeen) return;
+    // The Friends section loads the first time Settings opens, never at launch.
+    const observer = new MutationObserver(
+      () => dialog.open && setSettingsSeen(true),
+    );
+    observer.observe(dialog, { attributes: true, attributeFilter: ["open"] });
+    return () => observer.disconnect();
+  }, [settingsSeen]);
   const shareProject = async () => {
     if (!doc || sharing) return;
-    const projectFiles = sourceFiles.current.slice();
-    const isDemoProject = demoProject.current;
     setSharing(true);
     try {
-      const { exportProject } = await import("./core/project-file");
-      const blob = await exportProject({
-        doc,
-        files: projectFiles,
-        notes,
-        measurements: saved,
-        source,
-        unit,
-        scale,
-        quality,
-        demo: isDemoProject,
-      });
-      const name = doc.name.replace(/\.[^.]+$/, "") + ".sz3d";
+      const { blob, name } = await buildProject();
       const file = new File([blob], name, { type: "application/octet-stream" });
       if (!isNative() && navigator.canShare?.({ files: [file] })) {
         try {
@@ -675,9 +772,19 @@ function App() {
       setSharing(false);
     }
   };
+  // An unfinished assembly view must not stay on screen as if it had opened.
+  function dropLoadingView() {
+    const shown = docRef.current;
+    if (!shown?.loading) return;
+    viewer.current?.clearModel();
+    void loadRuntime().then((engine) => engine.disposeDocument(shown));
+    docRef.current = undefined;
+    setDoc(undefined);
+  }
   const cancel = () => {
     loadEpoch.current++;
     cad.cancel();
+    dropLoadingView();
     setLoading("");
     setError("Import canceled.");
   };
@@ -691,6 +798,7 @@ function App() {
       viewer.current?.highlight(next);
       if (!doc) return;
       const first = next[0];
+      setPartSelection(undefined);
       setSelectedPart(next.at(-1)?.partId);
       setRight(true);
       setPanel("measure");
@@ -878,8 +986,10 @@ function App() {
         return;
       }
       if (mode === "part") {
+        // Same selection as the assembly row; the view stays where it is.
+        if (doc) setPartSelection(selectionForPart(doc.roots, p.partId));
         setSelectedPart(p.partId);
-        viewer.current?.highlight([p]);
+        viewer.current?.highlight([]);
         setLeft(true);
         return;
       }
@@ -893,8 +1003,13 @@ function App() {
       const next = points.length >= count ? [p] : [...points, p];
       void complete(next);
     },
-    [points, tool, mode, explode, complete, placingNote, noteScope],
+    [points, tool, mode, explode, complete, placingNote, noteScope, doc],
   );
+  const miss = useCallback(() => {
+    if (mode !== "part" || placingNote) return;
+    setPartSelection(undefined);
+    setSelectedPart(undefined);
+  }, [mode, placingNote]);
   useEffect(() => {
     const p = current?.points || points;
     const text = current
@@ -936,10 +1051,20 @@ function App() {
       }),
     [],
   );
-  const selectParts = useCallback((ids: string[]) => {
-    setSelectedPart(ids[0]);
-    viewer.current?.fit(ids);
-  }, []);
+  const selectParts = useCallback(
+    (nodeId: string, ids: string[], deselect: boolean) => {
+      if (deselect) {
+        setPartSelection(undefined);
+        setSelectedPart(undefined);
+        return;
+      }
+      setPartSelection({ nodeId, ids });
+      setSelectedPart(ids[0]);
+      // Center without changing zoom; Shift+F still fits the selection.
+      viewer.current?.centerOnParts(ids);
+    },
+    [],
+  );
   const isolate = useCallback(
     (ids: string[]) => {
       if (doc) {
@@ -1047,6 +1172,7 @@ function App() {
   };
   const fitSelection = () => {
     if (points.length) viewer.current?.fitSelection(points);
+    else if (partSelection?.ids.length) viewer.current?.fit(partSelection.ids);
     else if (selectedPart) viewer.current?.fit([selectedPart]);
   };
   const normalToSelection = () => {
@@ -1061,11 +1187,13 @@ function App() {
     }
     const ids = points.length
       ? points.map((point) => point.partId)
-      : selectedPart
-        ? [selectedPart]
-        : [viewer.current?.getHoveredPartId()].filter(
-            (id): id is string => !!id,
-          );
+      : partSelection?.ids.length
+        ? partSelection.ids
+        : selectedPart
+          ? [selectedPart]
+          : [viewer.current?.getHoveredPartId()].filter(
+              (id): id is string => !!id,
+            );
     if (ids.length) setHidden((previous) => new Set([...previous, ...ids]));
   };
   const actions = useRef({
@@ -1212,6 +1340,111 @@ function App() {
       unlisten?.();
     };
   }, []);
+  const showSearchAssembly = () => {
+    setLeft(true);
+    requestAnimationFrame(() =>
+      document
+        .querySelector<HTMLInputElement>('[aria-label="Search assembly"]')
+        ?.focus(),
+    );
+  };
+  // Cmd/Ctrl+K. Friends' commands show only while Friends runs and is on.
+  const commands: Command[] = [
+    {
+      id: "open",
+      title: "Open file…",
+      shortcut: shortcutLabel("O"),
+      keywords: ["model", "drawing", "import"],
+      run: () => void actions.current.open(),
+    },
+    ...(doc
+      ? [
+          {
+            id: "share",
+            title: "Share commented project",
+            shortcut: shortcutLabel("S"),
+            keywords: ["save", "sz3d", "export"],
+            run: () => void actions.current.shareProject(),
+          },
+          {
+            id: "search-assembly",
+            title: "Search assembly",
+            shortcut: shortcutLabel("F"),
+            keywords: ["find", "part", "tree"],
+            run: showSearchAssembly,
+          },
+          {
+            id: "fit",
+            title: "Fit model",
+            shortcut: "F",
+            keywords: ["zoom", "view"],
+            run: () => viewer.current?.fit(),
+          },
+        ]
+      : []),
+    ...(friendsOn
+      ? [
+          {
+            id: "friends-open",
+            title: "Open Friends",
+            shortcut: friendsShortcutLabel,
+            keywords: [
+              "friend",
+              "nearby",
+              "add by id",
+              "chat",
+              "message",
+              "people",
+            ],
+            run: () => friendsRequests.request("open"),
+          },
+          {
+            id: "friends-add",
+            title: "Add by ID…",
+            keywords: ["friends", "friend", "add", "invite"],
+            run: () => friendsRequests.request("add_by_id"),
+          },
+          {
+            id: "friends-visible",
+            title: "Make myself visible",
+            keywords: ["friends", "nearby", "discoverable"],
+            run: () => friendsRequests.request("visible"),
+          },
+          {
+            id: "friends-settings",
+            title: "Friends Settings…",
+            keywords: ["preferences"],
+            run: () => {
+              settings.current?.showModal();
+              // The Friends section loads when Settings first opens.
+              let frames = 0;
+              const reveal = () => {
+                const section = document.querySelector(
+                  '[data-szfriends="settings"]',
+                );
+                if (section) section.scrollIntoView({ block: "start" });
+                else if (++frames < 120) requestAnimationFrame(reveal);
+              };
+              requestAnimationFrame(reveal);
+            },
+          },
+        ]
+      : []),
+    {
+      id: "settings",
+      title: "Settings…",
+      shortcut: shortcutLabel(","),
+      keywords: ["preferences", "units", "theme"],
+      run: () => settings.current?.showModal(),
+    },
+    {
+      id: "help",
+      title: "Help & shortcuts",
+      shortcut: "?",
+      keywords: ["keyboard", "controls"],
+      run: () => help.current?.showModal(),
+    },
+  ];
   const instruction =
     mode === "part"
       ? "Select a part to inspect"
@@ -1305,6 +1538,18 @@ function App() {
           >
             <X size={18} />
           </IconButton>
+        )}
+        {friendsLoaded && (
+          <Suspense fallback={null}>
+            <FriendsHeader
+              projectName={projectName}
+              recent={recent}
+              buildProject={buildProject}
+              onError={setError}
+              onNotice={notify}
+              onAvailable={setFriendsOn}
+            />
+          </Suspense>
         )}
         <IconButton
           title="Settings"
@@ -1480,6 +1725,7 @@ function App() {
               doc={doc}
               hidden={hidden}
               selected={selectedPart}
+              selection={partSelection}
               onToggle={toggleHidden}
               onSelect={selectParts}
               onIsolate={isolate}
@@ -1532,6 +1778,7 @@ function App() {
             key={viewerAttempt}
             ViewerClass={runtime?.Viewer}
             onPick={pick}
+            onMiss={miss}
             onHover={setHover}
             onReady={(v) => {
               viewer.current = v;
@@ -1759,7 +2006,10 @@ function App() {
             </div>
           )}
           {(!!loading || (doc && !ready && !viewerFailed)) && (
-            <div className="loading-overlay" role="status">
+            <div
+              className={`loading-overlay${doc?.loading ? " compact" : ""}`}
+              role="status"
+            >
               <LoaderCircle className="spin" size={30} />
               <h2>{loading || "Starting 3D viewer…"}</h2>
               <div className="indeterminate-progress" />
@@ -2273,7 +2523,7 @@ function App() {
           <span className="status-navigation">
             {usingNavigationDetail
               ? "Navigation detail · full detail when still"
-              : "Drag to pan · right-drag to orbit · pinch or wheel to zoom"}
+              : "Drag to pan · right-drag to orbit, or to pan with ⌘ or Ctrl held · swipe, pinch or wheel to zoom"}
           </span>
         )}
         {doc && (
@@ -2326,6 +2576,11 @@ function App() {
           <p>Models, drawings, textures, and companion files</p>
         </div>
       )}
+      <CommandPalette
+        open={paletteOpen}
+        commands={commands}
+        onClose={() => setPaletteOpen(false)}
+      />
       <dialog ref={help} className="dialog">
         <div className="dialog-heading">
           <h2>Help & shortcuts</h2>
@@ -2339,14 +2594,18 @@ function App() {
             <dl>
               <dt>Orbit</dt>
               <dd>
-                Right-drag around the current view center · one-finger touch
+                Right-drag (two-finger click-drag on a trackpad) around the
+                current view center · one-finger touch
               </dd>
               <dt>Pan</dt>
               <dd>
-                Left-drag or middle-drag · two-finger trackpad swipe or touch
+                Left-drag or middle-drag · right-drag or two-finger click-drag
+                while holding <kbd>⌘</kbd> or <kbd>Ctrl</kbd> · two-finger touch
+                · two-finger trackpad swipe while holding <kbd>⌘</kbd> or{" "}
+                <kbd>Ctrl</kbd>
               </dd>
               <dt>Zoom</dt>
-              <dd>Mouse wheel · pinch</dd>
+              <dd>Two-finger trackpad swipe · mouse wheel · pinch</dd>
               {window.shenzhenScroll?.subscribeRotate && (
                 <>
                   <dt>Rotate view</dt>
@@ -2401,6 +2660,18 @@ function App() {
               <dd>
                 <kbd>⌘ / Ctrl O</kbd>
               </dd>
+              <dt>Find a command</dt>
+              <dd>
+                <kbd>⌘ / Ctrl K</kbd>
+              </dd>
+              {friendsOn && (
+                <>
+                  <dt>Open or close Friends</dt>
+                  <dd>
+                    <kbd>⌘ / Ctrl J</kbd>
+                  </dd>
+                </>
+              )}
               <dt>Angle</dt>
               <dd>Three points, vertex at B</dd>
               <dt>Surface route</dt>
@@ -2643,6 +2914,11 @@ function App() {
         <p className="muted">
           Applies to the next import. Exact CAD measurements are unaffected.
         </p>
+        {settingsSeen && window.shenzhenFriends && (
+          <Suspense fallback={null}>
+            <FriendsSettingsSlot visible />
+          </Suspense>
+        )}
         <div className="dialog-footer">
           <button
             className="button primary"

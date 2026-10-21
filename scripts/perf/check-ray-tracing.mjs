@@ -1,9 +1,19 @@
 import { chromium } from "@playwright/test";
 import fs from "node:fs";
-const browser = await chromium.launch({
-  headless: false,
-  args: ["--use-gl=angle", "--use-angle=metal"],
+import { startAppServer } from "./app-server.mjs";
+const model = process.argv.includes("--sample") ? "sample" : "materials";
+const server = await startAppServer({
+  readyPath: `/tests/perf/ray-tracing.html?model=${model}`,
 });
+const browser = await chromium
+  .launch({
+    headless: false,
+    args: ["--use-gl=angle", "--use-angle=metal"],
+  })
+  .catch(async (error) => {
+    await server.close();
+    throw error;
+  });
 try {
   const page = await browser.newPage({ viewport: { width: 600, height: 500 } });
   let logs = 0;
@@ -21,9 +31,8 @@ try {
     errors.push(e.message);
     console.error(e);
   });
-  const model = process.argv.includes("--sample") ? "sample" : "materials";
   await page.goto(
-    `http://127.0.0.1:1420/tests/perf/ray-tracing.html?model=${model}`,
+    `${server.origin}/tests/perf/ray-tracing.html?model=${model}`,
   );
   await page.bringToFront();
   const hardware = await page.evaluate(async () => {
@@ -189,4 +198,5 @@ try {
   );
 } finally {
   await browser.close();
+  await server.close();
 }
