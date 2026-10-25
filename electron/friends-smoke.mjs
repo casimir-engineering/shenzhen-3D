@@ -9,7 +9,9 @@
 // It covers: attaching after first paint, the badge, naming, Nearby and a friend request, accepting it, a message
 // both ways, a file offer with the sender's preview before acceptance, Accept and Open in the viewer, a file dropped
 // on the chat, the open model sent as a .sz3d, Copy Download Link hidden while no links are offered, and `#` in the
-// composer listing the recent files, narrowed by typing, the chosen one sent with Send.
+// composer listing the recent files, narrowed by typing, the chosen one sent with Send, Attach files picking two
+// files of any kind in the system's file picker and Send giving the friend both, and Remove friend on Bo's details
+// going back to the list.
 import { _electron as electron, expect } from "@playwright/test";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -156,8 +158,18 @@ function createPeer() {
   };
 }
 
+// Attach files: what the person picks in the system's file picker, which the hidden run answers with these
+// (hidden-hook.cjs): any kind of file, not one the viewer opens, and a name with spaces.
+const picked = [
+  path.join(directory, "picked", "Site survey 2026.pdf"),
+  path.join(directory, "picked", "wiring notes.txt"),
+];
+await fs.mkdir(path.join(directory, "picked"));
+await fs.writeFile(picked[0], Buffer.from("%PDF-1.7 site survey\n".repeat(4096)));
+await fs.writeFile(picked[1], "Red to 12 V, black to ground.\n");
 const environment = {
   ...process.env,
+  SHENZHEN_HIDDEN_OPEN_FILES: JSON.stringify(picked),
   SHENZHEN_3D_FRIENDS_HELPER: helperApp,
   SHENZHEN_3D_FRIENDS_ADDON: addonPath,
   SZFRIENDS_STATE_DIR: homeApp,
@@ -513,6 +525,61 @@ try {
   ).toEqual([]);
   check("choosing a recent file and pressing Send gives the friend that file");
 
+  // Attach files: the paperclip opens the system's file picker for any files; both chosen become chips, and Send
+  // offers them with the message. The friend receives both, byte for byte.
+  const attach = panel.getByRole("button", { name: strings.attach_files });
+  await expect(attach).toBeVisible();
+  await expect(attach).toHaveAttribute("title", "Attach files");
+  await attach.click();
+  await expect(panel.locator(".szf-chip.attachment")).toHaveCount(2);
+  await expect(panel.locator(".szf-chip.attachment").first()).toContainText(
+    "Site survey 2026.pdf",
+  );
+  await expect(panel.locator(".szf-chip.attachment").last()).toContainText(
+    "wiring notes.txt",
+  );
+  if (process.env.SZF3D_SMOKE_SHOTS)
+    await page.screenshot({
+      path: path.join(process.env.SZF3D_SMOKE_SHOTS, "electron-attach-files.png"),
+    });
+  await editor.click();
+  await page.keyboard.type("Survey and wiring");
+  await page.keyboard.press("Enter");
+  await expect(panel.locator(".szf-chip.attachment")).toHaveCount(0, {
+    timeout: 30_000,
+  });
+  for (const file of picked) {
+    const name = path.basename(file);
+    const offered = await peer.until(
+      () =>
+        peerConversation()?.items.find(
+          (item) =>
+            item.kind === "transfer" &&
+            item.direction === "in" &&
+            item.file?.name === name,
+        ),
+      `the offer of ${name}`,
+    );
+    await peer.send("accept_offer", { transfer_id: offered.transfer_id });
+    const received = await peer.until(
+      () =>
+        peerConversation()?.items.find(
+          (item) =>
+            item.transfer_id === offered.transfer_id &&
+            item.state === "received",
+        ),
+      `${name} received`,
+      60_000,
+    );
+    const copy = received.actions?.find(
+      (action) => typeof action.path === "string",
+    )?.path;
+    expect(await fs.readFile(copy)).toEqual(await fs.readFile(file));
+  }
+  check(
+    "Attach files picks any files in the system's picker and Send gives the friend both",
+  );
+
   // The badge counts what waits for an answer, with the dropdown closed.
   await page.keyboard.press("Escape");
   const waiting = path.join(outgoing, "panel.obj");
@@ -529,6 +596,37 @@ try {
     timeout: 30_000,
   });
   check("the badge counts the waiting offer");
+
+  // Remove friend on Bo's details, confirmed: the panel goes back to the list, without Bo, rather than staying on
+  // his details (testing of 2026-10-22).
+  if (!(await panel.isVisible())) await button.click();
+  await expect(panel).toBeVisible();
+  // From the list, whatever the panel shows after the steps above.
+  const list = panel.locator(".szf-list-page");
+  for (let i = 0; i < 3 && !(await list.isVisible()); i++)
+    await panel.locator(".szf-back").first().click();
+  const bo = panel.locator(".szf-row", { hasText: "Bo" });
+  await bo.locator(".szf-row-main").click();
+  await panel.locator(".szf-conversation .szf-header-button").click();
+  const details = panel.locator(".szf-details");
+  await expect(details).toBeVisible();
+  await details.getByRole("button", { name: "Remove friend" }).click();
+  const question = panel.locator(".szf-confirm");
+  await expect(question).toBeVisible();
+  await question.locator(".szf-button.destructive").click();
+  await expect(list).toBeVisible({ timeout: 10_000 });
+  await expect(details).toHaveCount(0);
+  await expect(bo).toHaveCount(0, { timeout: 10_000 });
+  if (process.env.SZF3D_SMOKE_SHOTS)
+    await panel.screenshot({
+      path: path.join(
+        process.env.SZF3D_SMOKE_SHOTS,
+        "removed-back-on-list.png",
+      ),
+    });
+  check(
+    "Remove friend on a friend's details goes back to the list, without them",
+  );
 
   expect(errors).toEqual([]);
   check("no page errors");
