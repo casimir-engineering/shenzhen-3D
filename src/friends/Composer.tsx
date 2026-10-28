@@ -1,6 +1,6 @@
 // The conversation's composer: text, `@` mention chips (one U+FFFC each in the sent text, PROTOCOL.md § Mentions),
-// `#` attachment chips from the host's items, files chosen with Attach files (the system's file picker), and dropped
-// files. Return sends; Shift+Return breaks the line; Escape
+// `#` attachment chips from the host's items, files chosen with Attach files (the system's file picker), and pasted
+// or dropped files. Return sends; Shift+Return breaks the line; Escape
 // closes the innermost picker first. Drafts and their chips survive leaving the conversation and closing the panel.
 import { useEffect, useRef, useState } from "react";
 import type { Composer as ComposerData, ListData, ListRow } from "./protocol";
@@ -14,6 +14,7 @@ import {
   chooseFiles,
   dragHasFiles,
   filesFromDrop,
+  filesFromPaste,
   type OutgoingFile,
 } from "./drops";
 
@@ -21,12 +22,15 @@ export type AttachItem = {
   title: string;
   detail: string;
   kind_label: string;
+  /** The host's word for what is open in front ("Current"), a small pill beside the title; that item comes first. */
+  badge?: string;
   /** Prepares the file, or the files a model is made of; nothing is sent until Send. A refusal says why not. */
   file(): Promise<OutgoingFile | OutgoingFile[]>;
 };
 export type AttachSource = {
-  /** The host's words for what `#` searches (PROTOCOL.md § Principles: the host's own placeholder). */
-  placeholder: string;
+  /** The `#` picker's one row when nothing matches what was typed after `#`, in the host's words for what it offers
+   * (PROTOCOL.md § Principles). */
+  empty: string;
   items(query: string): AttachItem[];
 };
 
@@ -251,6 +255,23 @@ export function ComposerView({
     if (!bridge.stagedDropLimit) editor.current?.focus();
   };
 
+  // Paste: files copied in Finder, Explorer or Files and pictures (a screenshot) become chips, as dropped files do;
+  // anything else is text. True when it took the paste.
+  const pasteAttachments = async (files: File[], text: string) => {
+    if (!composer.enabled || !composer.accepts_drops || sending) return false;
+    const pasted = await filesFromPaste(bridge, strings, files, text);
+    if (!pasted) return false;
+    setRefusal(pasted.refusal);
+    if (pasted.files.length)
+      setAttachments((old) => [
+        ...old,
+        ...pasted.files.filter(
+          (file) => !old.some((entry) => entry.path === file.path),
+        ),
+      ]);
+    return true;
+  };
+
   const send = async () => {
     const root = editor.current;
     if (!root || sending || !composer.enabled) return;
@@ -323,8 +344,11 @@ export function ComposerView({
           ]);
       }}
     >
-      {picker && count > 0 && (
+      {picker && (count > 0 || picker.kind === "#") && (
         <div className="szf-picker" role="listbox">
+          {picker.kind === "#" && count === 0 && attach && (
+            <div className="szf-picker-empty">{attach.empty}</div>
+          )}
           {picker.kind === "@"
             ? candidates.map((row, index) => (
                 <button
@@ -352,7 +376,12 @@ export function ComposerView({
                 >
                   <span className="szf-file-icon small">{item.kind_label}</span>
                   <span>
-                    {item.title}
+                    <span className="szf-picker-title">
+                      <span className="szf-picker-name">{item.title}</span>
+                      {item.badge && (
+                        <span className="szf-badge-pill">{item.badge}</span>
+                      )}
+                    </span>
                     <small>{item.detail}</small>
                   </span>
                 </button>
@@ -365,9 +394,6 @@ export function ComposerView({
                   .join(" · ")}
           </small>
         </div>
-      )}
-      {picker?.kind === "#" && attach && (
-        <small className="szf-picker-hint">{attach.placeholder}</small>
       )}
       {attachments.length > 0 && (
         <div className="szf-attachments">
@@ -430,15 +456,27 @@ export function ComposerView({
             setSelected(0);
           }}
           onPaste={(event) => {
-            // Only plain text: a pasted chip or markup from elsewhere must not become a mention.
+            // Only plain text: a pasted chip or markup from elsewhere must not become a mention. Files and pictures
+            // become chips instead (pasteAttachments).
             event.preventDefault();
-            document.execCommand(
-              "insertText",
-              false,
-              event.clipboardData.getData("text/plain"),
-            );
+            const text = event.clipboardData.getData("text/plain");
+            const files = Array.from(event.clipboardData.files ?? []);
+            void pasteAttachments(files, text).then((taken) => {
+              if (!taken) document.execCommand("insertText", false, text);
+            });
           }}
           onKeyDown={(event) => {
+            // Return is the `#` picker's while it is open, rows or not: it never also sends the message.
+            if (
+              picker?.kind === "#" &&
+              event.key === "Enter" &&
+              !event.shiftKey &&
+              !event.nativeEvent.isComposing
+            ) {
+              event.preventDefault();
+              if (count > 0) void choose(selected);
+              return;
+            }
             if (picker && count > 0) {
               if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                 event.preventDefault();

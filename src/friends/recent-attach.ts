@@ -116,11 +116,7 @@ export function attachSource({
   if (!projectName && !recent.length) return null;
   return {
     // Shenzhen 3D's own words for what `#` offers here (PROTOCOL.md § Principles).
-    placeholder: projectName
-      ? recent.length
-        ? "Attach the open model or a recent file"
-        : "Attach the open model"
-      : "Attach a recent file",
+    empty: "No matching files",
     items(query) {
       const items: AttachItem[] = [];
       if (projectName && matchesQuery(query, projectName))
@@ -128,6 +124,7 @@ export function attachSource({
           title: projectName,
           detail: "The open model, with its notes and measurements",
           kind_label: "SZ3D",
+          badge: "Current",
           file: stageProject,
         });
       const time = now();

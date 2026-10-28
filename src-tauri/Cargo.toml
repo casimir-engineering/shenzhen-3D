@@ -1,6 +1,6 @@
 [package]
 name = "shenzhen-3d"
-version = "0.2.3"
+version = "0.2.4"
 description = "Local-first CAD and mesh viewer"
 authors = ["Shenzhen 3D contributors"]
 license = "GPL-3.0-or-later"
@@ -83,5 +83,4 @@ minisign-verify = "0.3"
 sha2 = "0.10"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-tauri-plugin-window-state = "2"
 tauri-plugin-log = "2"
