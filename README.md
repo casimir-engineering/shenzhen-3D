@@ -2,7 +2,7 @@
 
 A free viewer for CAD models, meshes and drawings: open an assembly, find a part, and take measurements you can trust. It runs on Mac, Windows, Linux, Android, iPhone and iPad, and in a browser. Your files stay on your device.
 
-[0.2.4 release notes](https://github.com/casimir-engineering/shenzhen-3D/blob/preview-0.2.4/docs/MAC-0.2.4.md) · [Download from Releases](https://github.com/casimir-engineering/shenzhen-3D/releases) · [Platform delivery and validation](docs/DELIVERY.md)
+[0.2.5 release notes](https://github.com/casimir-engineering/shenzhen-3D/blob/preview-0.2.5/docs/MAC-0.2.5.md) · [Download from Releases](https://github.com/casimir-engineering/shenzhen-3D/releases) · [Platform delivery and validation](docs/DELIVERY.md)
 
 ![Shenzhen 3D measuring between the arm and the base of a desk lamp model](docs/images/readme-measure-dark.png)
 
@@ -37,7 +37,7 @@ A free viewer for CAD models, meshes and drawings: open an assembly, find a part
 
 ## Friends (Beta)
 
-Message people nearby or by their Friends ID, and send them models and projects, in every version except the browser one. It is the same Friends as in ShenzhenPDF and Shenzhen Files. Type **#** to attach the open model, marked **Current**, or paste copied files and pictures. [Shenzhen Friends](https://github.com/casimir-engineering/shenzhen-3D/blob/preview-0.2.4/docs/FRIENDS.md)
+Message people nearby or by their Friends ID, and send them models and projects, in every version except the browser one. It is the same Friends as in ShenzhenPDF and Shenzhen Files. Type **#** to attach the open model, marked **Current**, or paste copied files and pictures. Each friend's row shows the latest message in your conversation, and files go over every connection you share at once, such as your network and Bluetooth. On Android, a large file can go over direct Wi-Fi when only Bluetooth reaches a friend. [Shenzhen Friends](https://github.com/casimir-engineering/shenzhen-3D/blob/preview-0.2.5/docs/FRIENDS.md)
 
 ## Download
 
